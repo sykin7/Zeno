@@ -20,7 +20,6 @@
         .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; box-sizing: border-box;}
         .panel { background: var(--panel); padding: 30px 25px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         
-        /* 核心重构：多端自适应响应式布局 */
         #app-layout { display: flex; flex-direction: column; height: 100vh; width: 100vw; background: var(--bg); }
         .content-area { flex: 1; overflow-y: auto; padding: 20px; box-sizing: border-box; }
         .nav-bar { display: flex; background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); z-index: 50;}
@@ -50,7 +49,6 @@
         .msg-bubble { max-width: 75%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; }
         .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
         .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
-        .sys-bubble { background: transparent; color: var(--text-muted); font-size: 12px; text-align: center; width: 100%; padding: 5px 0;}
         .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
         #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(15px, env(safe-area-inset-bottom));}
         #chat-input-area input { margin: 0; }
@@ -71,12 +69,13 @@
     <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
 
     <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary);">
+        <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
             <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
-            <p style="color: var(--text-muted); font-size: 14px;">此 UID 无法通过手机号找回，请务必截图或复制保存！</p>
+            <p style="color: var(--text-muted); font-size: 14px;">您的加密私钥已保存在本设备。<br>强烈建议立即下载备份，以免账号丢失！</p>
             <div class="profile-uid" id="new-uid-display"></div>
-            <button class="secondary" onclick="copyNewUid()" style="margin-bottom: 12px;">📋 一键复制 UID</button>
-            <button class="success" onclick="document.getElementById('uid-modal').classList.add('hidden')">✅ 我已妥善保存，去登录</button>
+            
+            <button class="success" onclick="downloadBackupAndLogin()" style="margin-bottom: 12px; height: 50px; font-size: 16px;">💾 一键下载密钥备份包 (推荐)</button>
+            <button class="secondary" onclick="closeUidModal()">稍后自己备份，直接登录</button>
         </div>
     </div>
 
@@ -87,7 +86,11 @@
             <input type="password" id="password" placeholder="安全密码">
             <button onclick="login()">登 录</button>
             <button class="secondary" onclick="register()">创建新账号</button>
-            <div class="flex" style="margin-top:20px;"><button class="secondary" style="font-size:13px;" onclick="exportData()">💾 导出数据</button><button class="secondary" style="font-size:13px;" onclick="document.getElementById('import-file').click()">📂 导入恢复</button><input type="file" id="import-file" class="hidden" onchange="importData(event)"></div>
+            <div class="flex" style="margin-top:20px;">
+                <button class="secondary" style="font-size:13px;" onclick="exportData()">💾 导出本地数据</button>
+                <button class="secondary" style="font-size:13px;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
+                <input type="file" id="import-file" class="hidden" onchange="importData(event)">
+            </div>
         </div>
     </div>
 
@@ -125,24 +128,16 @@
                 <button onclick="saveProfile()" style="margin-bottom: 30px;">更新资料</button>
                 
                 <h4 style="color:var(--text-muted);">数据安全管理</h4>
-                <button class="secondary" onclick="exportData()">💾 导出本地加密数据包</button>
-                <button class="danger" onclick="if(confirm('警告：退出将清除当前内存状态，下次需重新输入密码。')) location.reload();" style="margin-top: 15px;">🚪 退出登录</button>
+                <button class="secondary" onclick="exportData(currentUid)">💾 导出本地加密数据包</button>
+                <button class="danger" onclick="logout()" style="margin-top: 15px;">🚪 退出当前账号</button>
             </div>
         </div>
 
         <div class="nav-bar">
-            <div class="nav-item active" onclick="switchTab('msgs', this)">
-                <span class="nav-icon">💬</span><span>消息</span><span id="badge-msgs" class="badge hidden"></span>
-            </div>
-            <div class="nav-item" onclick="switchTab('contacts', this)">
-                <span class="nav-icon">👥</span><span>联系人</span>
-            </div>
-            <div class="nav-item" onclick="switchTab('requests', this)">
-                <span class="nav-icon">👋</span><span>新朋友</span><span id="badge-reqs" class="badge hidden"></span>
-            </div>
-            <div class="nav-item" onclick="switchTab('profile', this)">
-                <span class="nav-icon">⚙️</span><span>我的</span>
-            </div>
+            <div class="nav-item active" onclick="switchTab('msgs', this)"><span class="nav-icon">💬</span><span>消息</span><span id="badge-msgs" class="badge hidden"></span></div>
+            <div class="nav-item" onclick="switchTab('contacts', this)"><span class="nav-icon">👥</span><span>联系人</span></div>
+            <div class="nav-item" onclick="switchTab('requests', this)"><span class="nav-icon">👋</span><span>新朋友</span><span id="badge-reqs" class="badge hidden"></span></div>
+            <div class="nav-item" onclick="switchTab('profile', this)"><span class="nav-icon">⚙️</span><span>我的</span></div>
         </div>
     </div>
 
@@ -217,12 +212,20 @@
             const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: nick.trim(), password: p, public_key: await cryptoOp.export(keys.publicKey) }) }).then(r=>r.json());
             if(res.error) return alert(res.error);
             const tx = db.transaction('keys', 'readwrite'); tx.objectStore('keys').put({ uid: res.uid, nick: nick.trim(), priv: keys.privateKey, pub: keys.publicKey });
+            
             document.getElementById('uid-input').value = res.uid;
             document.getElementById('new-uid-display').innerText = res.uid;
             document.getElementById('uid-modal').classList.remove('hidden');
         };
 
-        const copyNewUid = () => { navigator.clipboard.writeText(document.getElementById('new-uid-display').innerText).then(() => alert('UID 已复制！')).catch(() => alert('复制失败，请手动记录。')); };
+        // 新增：自动下载备份并进入系统
+        const downloadBackupAndLogin = async () => {
+            const newUid = document.getElementById('new-uid-display').innerText;
+            await exportData(newUid); // 执行导出，文件名带 UID
+            closeUidModal();
+        };
+
+        const closeUidModal = () => { document.getElementById('uid-modal').classList.add('hidden'); };
 
         const login = async () => {
             const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
@@ -236,7 +239,6 @@
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
             
-            // 渲染个人中心
             document.getElementById('profile-uid-show').innerText = u;
             document.getElementById('profile-name-show').innerText = currentNickname;
             document.getElementById('settings-nickname').value = currentNickname;
@@ -244,10 +246,45 @@
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
+        // 修复：彻底清除会话的退出函数
+        const logout = () => {
+            if(confirm('确定要退出当前账号吗？\n只要您没有手动清理浏览器缓存，下次只需输入密码即可登录。')) {
+                sessionStorage.clear(); // 关键修复：清除会话缓存防止自动重连
+                location.reload();      // 刷新网页回到主界面
+            }
+        };
+
+        // 优化：带异常捕获和自适应命名的导出函数
+        const exportData = async (targetUid = '') => {
+            try {
+                const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)});
+                const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)});
+                const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)});
+                
+                if (keys.length === 0) {
+                    alert('当前没有任何账号数据可供备份！');
+                    return;
+                }
+
+                const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(b);
+                // 文件名加上UID，防呆设计
+                const idStr = targetUid ? `_UID_${targetUid}` : '';
+                a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; 
+                a.click();
+                
+            } catch (error) {
+                alert('导出失败，请检查浏览器是否允许下载文件！');
+            }
+        };
+
+        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请直接登录！');location.reload();}; }catch(err){alert('文件格式错误！');} }; r.readAsText(f); };
+
+
         const switchTab = (tabId, element) => {
             ['msgs', 'contacts', 'requests', 'profile'].forEach(id => document.getElementById(`tab-${id}`).classList.add('hidden'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`tab-${tabId}`).classList.remove('tab-hidden');
             document.getElementById(`tab-${tabId}`).classList.remove('hidden');
             element.classList.add('active');
             if(tabId === 'requests') { document.getElementById('badge-reqs').classList.add('hidden'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); }
@@ -265,7 +302,6 @@
             socket.on('msg_read', d => updateTick(d.msgId, 2));
             socket.on('webrtc_signal', handleSignal);
             
-            // 好友请求信令
             socket.on('new_friend_request', () => { document.getElementById('badge-reqs').innerText = '新'; document.getElementById('badge-reqs').classList.remove('hidden'); });
             socket.on('friend_requests_data', async (arr) => {
                 const list = document.getElementById('request-list'); list.innerHTML = '';
@@ -290,7 +326,6 @@
                 const plain = await cryptoOp.dec(d.payload, keys.priv);
                 const msg = JSON.parse(plain);
                 
-                // 监听系统自动回传的“同意好友请求”信令
                 if(msg.t === 'sys_accept') {
                     const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: d.from }) }).then(r=>r.json());
                     if(res.status === 'ok') {
@@ -298,7 +333,7 @@
                         showPushNotification("系统通知", `${res.nickname} 已通过你的好友请求`);
                         renderUI();
                     }
-                    return; // 系统信令不写入消息流
+                    return; 
                 }
 
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
@@ -325,7 +360,6 @@
                 const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
                 
                 const divC = document.createElement('div'); divC.className = 'list-item'; divC.innerHTML = html; listC.appendChild(divC);
-                // 仅当有未读消息，或作为演示，将所有联系人也放到消息列表（由于 SQLite 未做会话聚合查询，此处简化处理两边一致）
                 const divM = document.createElement('div'); divM.className = 'list-item'; divM.innerHTML = html; listM.appendChild(divM);
             });
             
@@ -333,7 +367,6 @@
             if(totalUnread > 0) { bMsgs.innerText = totalUnread > 99 ? '99+' : totalUnread; bMsgs.classList.remove('hidden'); } else { bMsgs.classList.add('hidden'); }
         };
 
-        // 好友双向确立体系
         const searchAndRequest = async () => {
             const u = document.getElementById('search-uid-input').value.trim(); if(!u || u === currentUid) return;
             const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
@@ -351,11 +384,8 @@
         const rejectReq = (reqId) => { socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); };
         
         const acceptReq = async (reqId, fromUid, fromNick, fromPub) => {
-            // 保存对方为联系人
             const tx = db.transaction('contacts', 'readwrite'); tx.objectStore('contacts').put({ uid: fromUid, nick: fromNick, pub: fromPub });
-            // 通知服务器销毁请求
             socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId });
-            // 向对方盲发一条系统级同意信令，以便对方也能保存我
             const payload = { id: Math.random().toString(36).substr(2, 9), t: 'sys_accept', c: 'ok' };
             const enc = await cryptoOp.enc(JSON.stringify(payload), fromPub);
             socket.emit('send_message', { from: currentUid, token: currentToken, to: fromUid, payload: enc });
@@ -365,7 +395,6 @@
             renderUI();
         };
 
-        // 聊天逻辑
         const loadMore = async (uid) => {
             const tx = db.transaction('messages').objectStore('messages');
             const idx = tx.index('contact'); const range = IDBKeyRange.only(uid);
@@ -428,7 +457,6 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        // 音视频逻辑保持不变
         const startCall = async () => {
             document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "等待接听...";
             try {
@@ -465,8 +493,6 @@
         const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; };
 
         const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('保存成功'); };
-        const exportData = async () => { const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)}); const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)}); const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)}); const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Zeno_${Date.now()}.json`; a.click(); };
-        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功！');location.reload();}; }catch(err){alert('失败');} }; r.readAsText(f); };
 
         window.onload = async () => { await initDB(); const u = sessionStorage.getItem('chat_uid'); if(u) { document.getElementById('uid-input').value = u; } };
     </script>
