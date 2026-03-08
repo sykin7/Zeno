@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760)
 
 DB_PATH = os.path.join('data', 'users.db')
 connected_users = {}
@@ -27,11 +27,8 @@ def init_db():
     conn = get_db()
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.execute('PRAGMA auto_vacuum = FULL;')
-    conn.execute('''CREATE TABLE IF NOT EXISTS users 
-                    (uid TEXT PRIMARY KEY, nickname TEXT, password_hash TEXT, public_key TEXT)''')
-    # 新增：离线加密消息盲中继队列
-    conn.execute('''CREATE TABLE IF NOT EXISTS offline_msgs 
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)''')
+    conn.execute('CREATE TABLE IF NOT EXISTS users (uid TEXT PRIMARY KEY, nickname TEXT, password_hash TEXT, public_key TEXT)')
+    conn.execute('CREATE TABLE IF NOT EXISTS offline_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)')
     conn.commit()
     conn.close()
 
@@ -46,7 +43,7 @@ def register():
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     now = time.time()
     if now - auth_limits.get(ip, 0) < 2.0:
-        return jsonify({'error': '请求频率过快，请稍后再试'}), 429
+        return jsonify({'error': 'Limit'}), 429
     auth_limits[ip] = now
 
     data = request.json
@@ -55,7 +52,7 @@ def register():
     public_key = data.get('public_key')
     
     if not nickname or not password or not public_key:
-        return jsonify({'error': '缺少参数'}), 400
+        return jsonify({'error': 'Missing'}), 400
         
     conn = get_db()
     
@@ -66,8 +63,7 @@ def register():
             break
             
     pwd_hash = generate_password_hash(password)
-    conn.execute('INSERT INTO users (uid, nickname, password_hash, public_key) VALUES (?, ?, ?, ?)',
-                 (uid, nickname, pwd_hash, public_key))
+    conn.execute('INSERT INTO users (uid, nickname, password_hash, public_key) VALUES (?, ?, ?, ?)', (uid, nickname, pwd_hash, public_key))
     conn.commit()
     conn.close()
     return jsonify({'status': 'ok', 'uid': uid})
@@ -77,7 +73,7 @@ def login():
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     now = time.time()
     if now - auth_limits.get(ip, 0) < 2.0:
-        return jsonify({'error': '请求频率过快，请稍后再试'}), 429
+        return jsonify({'error': 'Limit'}), 429
     auth_limits[ip] = now
 
     data = request.json
@@ -92,20 +88,18 @@ def login():
         token = secrets.token_hex(16)
         auth_tokens[uid] = token
         return jsonify({'status': 'ok', 'uid': uid, 'nickname': user['nickname'], 'public_key': user['public_key'], 'token': token})
-    return jsonify({'error': 'UID 或密码错误'}), 401
+    return jsonify({'error': 'Auth failed'}), 401
 
 @app.route('/api/contact', methods=['POST'])
 def add_contact():
     data = request.json
     target_uid = data.get('uid')
-    
     conn = get_db()
     user = conn.execute('SELECT nickname, public_key FROM users WHERE uid = ?', (target_uid,)).fetchone()
     conn.close()
-    
     if user:
         return jsonify({'status': 'ok', 'uid': target_uid, 'nickname': user['nickname'], 'public_key': user['public_key']})
-    return jsonify({'error': '未找到该 UID 对应的用户'}), 404
+    return jsonify({'error': 'Not found'}), 404
 
 @socketio.on('connect')
 def handle_connect():
@@ -121,7 +115,6 @@ def handle_register(data):
         emit('online_users', {'users': list(connected_users.keys())}, to=request.sid)
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
         
-        # 提取并推送离线密文
         conn = get_db()
         offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
         if offline_msgs:
@@ -131,7 +124,7 @@ def handle_register(data):
             conn.commit()
         conn.close()
     else:
-        emit('auth_failed', {'error': '认证过期或服务器已重启，请重新登录'}, to=request.sid)
+        emit('auth_failed', {'error': 'Session expired'}, to=request.sid)
         disconnect()
 
 @socketio.on('disconnect')
@@ -152,9 +145,7 @@ def handle_message(data):
         return
         
     now = time.time()
-    last_time = message_limits.get(sender_uid, 0)
-    if now - last_time < 0.5:
-        emit('message_error', {'status': '频率限制', 'to': target_uid, 'msg': '发送频率过快，请减速'}, to=request.sid)
+    if now - message_limits.get(sender_uid, 0) < 0.2:
         return
     message_limits[sender_uid] = now
     
@@ -164,12 +155,36 @@ def handle_message(data):
         target_sid = connected_users[target_uid]
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': msg_timestamp}, room=target_sid)
     else:
-        # 对方离线，存入盲中继队列
         conn = get_db()
-        conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)',
-                     (target_uid, sender_uid, payload, msg_timestamp))
+        conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, msg_timestamp))
         conn.commit()
         conn.close()
+
+@socketio.on('msg_ack')
+def handle_msg_ack(data):
+    sender_uid = data.get('from')
+    token = data.get('token')
+    target_uid = data.get('to')
+    msg_id = data.get('msgId')
+    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
+        emit('msg_ack', {'msgId': msg_id, 'from': sender_uid}, room=connected_users[target_uid])
+
+@socketio.on('msg_read')
+def handle_msg_read(data):
+    sender_uid = data.get('from')
+    token = data.get('token')
+    target_uid = data.get('to')
+    msg_id = data.get('msgId')
+    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
+        emit('msg_read', {'msgId': msg_id, 'from': sender_uid}, room=connected_users[target_uid])
+
+@socketio.on('webrtc_signal')
+def handle_webrtc(data):
+    sender_uid = data.get('from')
+    token = data.get('token')
+    target_uid = data.get('to')
+    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
+        emit('webrtc_signal', data, room=connected_users[target_uid])
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=8787)
