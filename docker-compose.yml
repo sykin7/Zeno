@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  chat-app:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+    restart: always
