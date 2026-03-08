@@ -55,12 +55,17 @@
         .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; }
         .recording { background: var(--danger) !important; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
+        .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
         #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
-        #webrtc-view { position: fixed; inset: 0; background: #000; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #remote-video { width: 100%; height: 100%; object-fit: cover; }
-        #local-video { position: absolute; top: max(20px, env(safe-area-inset-top)); right: 20px; width: 100px; height: 150px; border-radius: 10px; object-fit: cover; border: 2px solid #fff; }
-        .call-tools { position: absolute; bottom: 50px; display: flex; gap: 30px; }
-        .circle-btn { width: 65px; height: 65px; border-radius: 50%; font-size: 24px; }
+        
+        /* 全新优化的纯语音通话 UI */
+        #webrtc-view { position: fixed; inset: 0; background: #0f172a; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .call-avatar { width: 100px; height: 100px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 50px; margin-bottom: 20px; border: 2px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.3);}
+        .call-name { font-size: 24px; font-weight: bold; color: white; margin-bottom: 10px; }
+        .call-status-text { font-size: 14px; color: var(--text-muted); margin-bottom: 60px; }
+        .call-tools { display: flex; gap: 40px; }
+        .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; }
         .tick-read { color: var(--success); font-weight: bold; }
         .flex { display: flex; gap: 10px;}
     </style>
@@ -73,7 +78,6 @@
             <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
             <p style="color: var(--text-muted); font-size: 14px;">您的加密私钥已保存在本设备。<br>强烈建议立即下载备份，以免账号丢失！</p>
             <div class="profile-uid" id="new-uid-display"></div>
-            
             <button class="success" onclick="downloadBackupAndLogin()" style="margin-bottom: 12px; height: 50px; font-size: 16px;">💾 一键下载密钥备份包 (推荐)</button>
             <button class="secondary" onclick="closeUidModal()">稍后自己备份，直接登录</button>
         </div>
@@ -157,11 +161,19 @@
     </div>
 
     <div id="webrtc-view" class="hidden">
-        <h3 id="call-status" style="position:absolute; top:max(40px, env(safe-area-inset-top)); color:#fff; z-index:10;">呼叫中...</h3>
-        <video id="remote-video" autoplay playsinline></video>
-        <video id="local-video" autoplay playsinline muted></video>
-        <div class="call-tools" id="call-tools"><button class="danger circle-btn" onclick="endCall()">☎</button></div>
-        <div class="call-tools hidden" id="incoming-tools"><button class="success circle-btn" onclick="acceptCall()">📞</button><button class="danger circle-btn" onclick="endCall()">拒绝</button></div>
+        <audio id="remote-audio" autoplay></audio>
+        
+        <div class="call-avatar">👤</div>
+        <div class="call-name" id="call-target-display-name">未知联系人</div>
+        <div class="call-status-text" id="call-status">正在发起语音通话...</div>
+        
+        <div class="call-tools" id="call-tools">
+            <button class="danger circle-btn" onclick="endCall()">☎</button>
+        </div>
+        <div class="call-tools hidden" id="incoming-tools">
+            <button class="danger circle-btn" onclick="endCall()">☎</button>
+            <button class="success circle-btn" onclick="acceptCall()">📞</button>
+        </div>
     </div>
 
     <script>
@@ -218,10 +230,9 @@
             document.getElementById('uid-modal').classList.remove('hidden');
         };
 
-        // 新增：自动下载备份并进入系统
         const downloadBackupAndLogin = async () => {
             const newUid = document.getElementById('new-uid-display').innerText;
-            await exportData(newUid); // 执行导出，文件名带 UID
+            await exportData(newUid); 
             closeUidModal();
         };
 
@@ -246,41 +257,29 @@
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
-        // 修复：彻底清除会话的退出函数
         const logout = () => {
             if(confirm('确定要退出当前账号吗？\n只要您没有手动清理浏览器缓存，下次只需输入密码即可登录。')) {
-                sessionStorage.clear(); // 关键修复：清除会话缓存防止自动重连
-                location.reload();      // 刷新网页回到主界面
+                sessionStorage.clear(); 
+                location.reload();      
             }
         };
 
-        // 优化：带异常捕获和自适应命名的导出函数
         const exportData = async (targetUid = '') => {
             try {
                 const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)});
                 const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)});
                 const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)});
                 
-                if (keys.length === 0) {
-                    alert('当前没有任何账号数据可供备份！');
-                    return;
-                }
-
+                if (keys.length === 0) { alert('当前没有任何账号数据可供备份！'); return; }
                 const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'});
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(b);
-                // 文件名加上UID，防呆设计
+                const a = document.createElement('a'); a.href = URL.createObjectURL(b);
                 const idStr = targetUid ? `_UID_${targetUid}` : '';
                 a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; 
                 a.click();
-                
-            } catch (error) {
-                alert('导出失败，请检查浏览器是否允许下载文件！');
-            }
+            } catch (error) { alert('导出失败，请检查浏览器是否允许下载文件！'); }
         };
 
         const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请直接登录！');location.reload();}; }catch(err){alert('文件格式错误！');} }; r.readAsText(f); };
-
 
         const switchTab = (tabId, element) => {
             ['msgs', 'contacts', 'requests', 'profile'].forEach(id => document.getElementById(`tab-${id}`).classList.add('hidden'));
@@ -457,40 +456,59 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
+        // 核心修改：仅请求 audio: true，去除 video: true，实现纯语音通话
         const startCall = async () => {
-            document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "等待接听...";
+            document.getElementById('webrtc-view').classList.remove('hidden'); 
+            document.getElementById('call-status').innerText = "正在等待对方接听...";
+            document.getElementById('call-target-display-name').innerText = currentTargetName;
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); document.getElementById('local-video').srcObject = localStream; peerConnection = new RTCPeerConnection(STUN);
+                // 仅请求麦克风
+                localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true }); 
+                peerConnection = new RTCPeerConnection(STUN);
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: e.candidate });
-                peerConnection.ontrack = e => document.getElementById('remote-video').srcObject = e.streams[0];
+                // 将接收到的音频流绑定到隐藏的 audio 标签
+                peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
+                
                 const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: offer });
-            } catch(e) { endCallLocal(); alert('获取摄像头失败'); }
+            } catch(e) { endCallLocal(); alert('获取麦克风失败，请检查浏览器权限设置！'); }
         };
+        
         const handleSignal = async (d) => {
             if(d.type === 'offer') {
                 if(document.getElementById('webrtc-view').classList.contains('hidden') === false) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
-                document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "来电...";
+                
+                // 获取拨打者昵称
+                const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
+                document.getElementById('call-target-display-name').innerText = contact ? contact.nick : d.from;
+                
+                document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请您进行语音通话...";
+                
                 peerConnection = new RTCPeerConnection(STUN);
                 peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: e.candidate });
-                peerConnection.ontrack = e => document.getElementById('remote-video').srcObject = e.streams[0];
+                peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
+                
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); activeCallTarget = d.from;
             } else if(d.type === 'answer') { await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); document.getElementById('call-status').innerText = "通话中"; }
             else if(d.type === 'ice') { await peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)); }
-            else if(d.type === 'busy') { alert("对方忙线中"); endCallLocal(); }
-            else if(d.type === 'reject') { alert("对方已拒绝"); endCallLocal(); }
+            else if(d.type === 'busy') { alert("对方正忙..."); endCallLocal(); }
+            else if(d.type === 'reject') { alert("对方已拒绝通话"); endCallLocal(); }
             else if(d.type === 'end') { endCallLocal(); }
         };
+        
         const acceptCall = async () => {
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); document.getElementById('local-video').srcObject = localStream; localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+                // 仅请求麦克风
+                localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true }); 
+                localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: ans });
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
-            } catch(e) { endCallLocal(); }
+            } catch(e) { endCallLocal(); alert('获取麦克风失败，无法接听！'); }
         };
+        
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
-        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; };
+        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; };
 
         const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('保存成功'); };
 
