@@ -29,6 +29,9 @@ def init_db():
     conn.execute('PRAGMA auto_vacuum = FULL;')
     conn.execute('''CREATE TABLE IF NOT EXISTS users 
                     (uid TEXT PRIMARY KEY, nickname TEXT, password_hash TEXT, public_key TEXT)''')
+    # 新增：离线加密消息盲中继队列
+    conn.execute('''CREATE TABLE IF NOT EXISTS offline_msgs 
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)''')
     conn.commit()
     conn.close()
 
@@ -117,6 +120,16 @@ def handle_register(data):
         connected_users[uid] = request.sid
         emit('online_users', {'users': list(connected_users.keys())}, to=request.sid)
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
+        
+        # 提取并推送离线密文
+        conn = get_db()
+        offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
+        if offline_msgs:
+            msgs_data = [{'from': m['from_uid'], 'payload': m['payload'], 'timestamp': m['timestamp']} for m in offline_msgs]
+            emit('offline_sync', msgs_data, to=request.sid)
+            conn.execute('DELETE FROM offline_msgs WHERE to_uid = ?', (uid,))
+            conn.commit()
+        conn.close()
     else:
         emit('auth_failed', {'error': '认证过期或服务器已重启，请重新登录'}, to=request.sid)
         disconnect()
@@ -144,12 +157,19 @@ def handle_message(data):
         emit('message_error', {'status': '频率限制', 'to': target_uid, 'msg': '发送频率过快，请减速'}, to=request.sid)
         return
     message_limits[sender_uid] = now
+    
+    msg_timestamp = now * 1000
 
     if target_uid in connected_users:
         target_sid = connected_users[target_uid]
-        emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now * 1000}, room=target_sid)
+        emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': msg_timestamp}, room=target_sid)
     else:
-        emit('message_error', {'status': '离线', 'to': target_uid, 'msg': '由于对方离线拦截失败，消息已丢失'}, to=request.sid)
+        # 对方离线，存入盲中继队列
+        conn = get_db()
+        conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)',
+                     (target_uid, sender_uid, payload, msg_timestamp))
+        conn.commit()
+        conn.close()
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=8787)
