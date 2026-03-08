@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify, render_template
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, disconnect
 import sqlite3
 import os
+import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -10,6 +11,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 DB_PATH = os.path.join('data', 'users.db')
 connected_users = {}
+auth_tokens = {}
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -64,7 +66,9 @@ def login():
     conn.close()
     
     if user and check_password_hash(user['password_hash'], password):
-        return jsonify({'status': 'ok', 'public_key': user['public_key']})
+        token = secrets.token_hex(16)
+        auth_tokens[username] = token
+        return jsonify({'status': 'ok', 'public_key': user['public_key'], 'token': token})
     return jsonify({'error': '账号或密码错误'}), 401
 
 @app.route('/api/users', methods=['GET'])
@@ -90,9 +94,13 @@ def handle_connect():
 @socketio.on('register_socket')
 def handle_register(data):
     username = data.get('username')
-    if username:
+    token = data.get('token')
+    
+    if username and auth_tokens.get(username) == token:
         connected_users[username] = request.sid
         emit('user_status', {'username': username, 'status': 'online'}, broadcast=True)
+    else:
+        disconnect()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -103,15 +111,19 @@ def handle_disconnect():
 
 @socketio.on('send_message')
 def handle_message(data):
+    sender = data.get('from')
+    token = data.get('token')
     target = data.get('to')
     payload = data.get('payload')
-    sender = data.get('from')
     
+    if not sender or auth_tokens.get(sender) != token:
+        return
+        
     if target in connected_users:
         target_sid = connected_users[target]
         emit('receive_message', {'from': sender, 'payload': payload}, room=target_sid)
     else:
-        emit('message_error', {'status': '离线', 'to': target})
+        emit('message_error', {'status': '离线', 'to': target}, to=request.sid)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=8787)
