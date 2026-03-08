@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>隐语</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444;}
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .hidden { display: none !important; }
+        input, button { width: 100%; box-sizing: border-box; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #475569; outline: none; font-size: 16px; }
+        input { background: #334155; color: white; }
+        button { background: var(--primary); color: white; font-weight: bold; cursor: pointer; border: none; }
+        button.secondary { background: #334155; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        input:disabled { background: #1e293b; color: #94a3b8; }
+        .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 12px; }
+        .flex { display: flex; gap: 10px; }
+        .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        #chat-view { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: fixed; inset: 0; z-index: 10; }
+        #chat-header { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
+        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .msg-row { display: flex; width: 100%; }
+        .me { justify-content: flex-end; }
+        .msg-bubble { max-width: 70%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; }
+        .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
+        .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
+        .sys-msg { text-align: center; color: #94a3b8; font-size: 12px; width: 100%; }
+        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 10px; }
+        #chat-input-area input { margin: 0; }
+        #chat-input-area button { width: 80px; margin: 0; }
+        .status-badge { font-size: 14px; font-weight: bold; margin-left: 8px; }
+    </style>
+</head>
+<body>
+
+    <div id="auth-view" class="container">
+        <div class="panel">
+            <h2 style="text-align: center; margin-top: 0;">隐语</h2>
+            <input type="text" id="username" placeholder="用户名" autocomplete="off">
+            <input type="password" id="password" placeholder="密码">
+            <button onclick="login()">登录</button>
+            <button class="secondary" onclick="register()">注册新节点</button>
+            <div style="margin-top: 15px; border-top: 1px solid #475569; padding-top: 15px;">
+                <button class="secondary" onclick="exportData()">💾 备份本地数据</button>
+                <input type="file" id="import-file" style="display:none" onchange="importData(event)">
+                <button class="secondary" onclick="document.getElementById('import-file').click()">📂 恢复本地数据</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-view" class="container hidden">
+        <div class="panel">
+            <div class="flex" style="justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">联系人</h3>
+                <span id="my-name" style="color: #94a3b8;"></span>
+            </div>
+            <button class="secondary" onclick="loadUsers()">🔄 刷新列表</button>
+            <div id="user-list" style="margin-top: 15px; max-height: 400px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div id="chat-view" class="hidden">
+        <div id="chat-header">
+            <div>
+                <strong id="chat-target-name"></strong>
+                <span id="chat-target-status" class="status-badge"></span>
+            </div>
+            <button class="secondary" style="width: auto; padding: 5px 15px; margin: 0;" onclick="closeChat()">返回</button>
+        </div>
+        <div id="chat-box"></div>
+        <div id="chat-input-area">
+            <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
+            <button id="send-btn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let currentUser = null;
+        let currentTarget = null;
+        let targetPublicKeyStr = null;
+        let socket = null;
+        let onlineStatusMap = {};
+
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open('SecureChatDB', 1);
+                req.onupgradeneeded = e => {
+                    const idb = e.target.result;
+                    if (!idb.objectStoreNames.contains('keys')) idb.createObjectStore('keys', { keyPath: 'username' });
+                    if (!idb.objectStoreNames.contains('messages')) {
+                        const msgStore = idb.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
+                        msgStore.createIndex('contact', 'contact', { unique: false });
+                    }
+                };
+                req.onsuccess = e => { db = e.target.result; resolve(); };
+                req.onerror = () => reject();
+            });
+        };
+
+        const generateKeys = async () => {
+            const keyPair = await window.crypto.subtle.generateKey(
+                { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+                true, ["encrypt", "decrypt"]
+            );
+            const pubKeyBuf = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
+            const pubKeyStr = btoa(String.fromCharCode(...new Uint8Array(pubKeyBuf)));
+            return { keyPair, pubKeyStr };
+        };
+
+        const storeKeys = (username, keyPair) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('keys', 'readwrite');
+                tx.objectStore('keys').put({ username, privateKey: keyPair.privateKey, publicKey: keyPair.publicKey });
+                tx.oncomplete = resolve;
+            });
+        };
+
+        const getPrivateKey = (username) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('keys', 'readonly');
+                const req = tx.objectStore('keys').get(username);
+                req.onsuccess = () => resolve(req.result ? req.result.privateKey : null);
+            });
+        };
+
+        const storeMessage = (contact, type, text) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('messages', 'readwrite');
+                tx.objectStore('messages').add({ contact, type, text, timestamp: Date.now() });
+                tx.oncomplete = resolve;
+            });
+        };
+
+        const loadMessages = (contact) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('messages', 'readonly');
+                const index = tx.objectStore('messages').index('contact');
+                const req = index.getAll(contact);
+                req.onsuccess = () => resolve(req.result);
+            });
+        };
+
+        const encryptText = async (text, pubKeyStr) => {
+            const binaryDer = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
+            const pubKey = await window.crypto.subtle.importKey(
+                "spki", binaryDer.buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
+            );
+            const encoded = new TextEncoder().encode(text);
+            const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, pubKey, encoded);
+            return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+        };
+
+        const decryptText = async (cipherBase64, privKey) => {
+            const cipherBytes = Uint8Array.from(atob(cipherBase64), c => c.charCodeAt(0));
+            const decrypted = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, cipherBytes.buffer);
+            return new TextDecoder().decode(decrypted);
+        };
+
+        const apiCall = async (endpoint, payload) => {
+            const res = await fetch(endpoint, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+            return res.json();
+        };
+
+        const register = async () => {
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value;
+            if(!u || !p) return alert('完善信息');
+            const keys = await generateKeys();
+            const res = await apiCall('/api/register', { username: u, password: p, public_key: keys.pubKeyStr });
+            if (res.error) return alert(res.error);
+            await storeKeys(u, keys.keyPair);
+            alert('注册成功，请登录');
+        };
+
+        const login = async () => {
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value;
+            if(!u || !p) return;
+            const res = await apiCall('/api/login', { username: u, password: p });
+            if (res.error) return alert(res.error);
+            
+            const priv = await getPrivateKey(u);
+            if (!priv) return alert('本地未找到私钥，如果是新设备请先恢复数据');
+            
+            currentUser = u;
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('main-view').classList.remove('hidden');
+            document.getElementById('my-name').innerText = '当前: ' + u;
+            initSocket();
+            loadUsers();
+        };
+
+        const renderUserList = (users) => {
+            const list = document.getElementById('user-list');
+            list.innerHTML = '';
+            users.forEach(user => {
+                if(user.username === currentUser) return;
+                onlineStatusMap[user.username] = user.online;
+                
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                const statusColor = user.online ? 'var(--success)' : 'var(--danger)';
+                const statusText = user.online ? '[在线]' : '[离线]';
+                
+                div.innerHTML = `
+                    <div>
+                        <span>${user.username}</span>
+                        <span class="status-badge" style="color:${statusColor}">${statusText}</span>
+                    </div>
+                    <button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="openChat('${user.username}', '${user.public_key}')">发消息</button>
+                `;
+                list.appendChild(div);
+            });
+        };
+
+        const loadUsers = async () => {
+            const res = await fetch('/api/users').then(r => r.json());
+            renderUserList(res);
+        };
+
+        const updateChatInputState = (isOnline) => {
+            const input = document.getElementById('msg-input');
+            const btn = document.getElementById('send-btn');
+            const statusEl = document.getElementById('chat-target-status');
+            
+            if (isOnline) {
+                input.disabled = false;
+                btn.disabled = false;
+                input.placeholder = "输入消息...";
+                statusEl.innerText = "[在线]";
+                statusEl.style.color = "var(--success)";
+            } else {
+                input.disabled = true;
+                btn.disabled = true;
+                input.placeholder = "好友已离线，由于无服务器存储，当前无法发送消息";
+                statusEl.innerText = "[离线]";
+                statusEl.style.color = "var(--danger)";
+            }
+        };
+
+        const initSocket = () => {
+            socket = io();
+            socket.on('connect', () => socket.emit('register_socket', { username: currentUser }));
+            
+            socket.on('user_status', (data) => {
+                onlineStatusMap[data.username] = (data.status === 'online');
+                loadUsers();
+                if (currentTarget === data.username) {
+                    updateChatInputState(data.status === 'online');
+                }
+            });
+
+            socket.on('receive_message', async (data) => {
+                try {
+                    const privKey = await getPrivateKey(currentUser);
+                    const plain = await decryptText(data.payload, privKey);
+                    await storeMessage(data.from, 'other', plain);
+                    if (currentTarget === data.from) appendMessage('other', plain);
+                } catch(e) {}
+            });
+            
+            socket.on('message_error', (data) => {
+                if (currentTarget === data.to) appendMessage('sys', '由于对方离线拦截失败，消息已丢失');
+            });
+        };
+
+        const openChat = async (targetUser, targetPubKey) => {
+            currentTarget = targetUser;
+            targetPublicKeyStr = targetPubKey;
+            document.getElementById('main-view').classList.add('hidden');
+            document.getElementById('chat-view').classList.remove('hidden');
+            document.getElementById('chat-target-name').innerText = targetUser;
+            
+            updateChatInputState(onlineStatusMap[targetUser] === true);
+            
+            const box = document.getElementById('chat-box');
+            box.innerHTML = '';
+            const history = await loadMessages(targetUser);
+            history.forEach(msg => appendMessage(msg.type, msg.text));
+        };
+
+        const closeChat = () => {
+            currentTarget = null; targetPublicKeyStr = null;
+            document.getElementById('chat-view').classList.add('hidden');
+            document.getElementById('main-view').classList.remove('hidden');
+        };
+
+        const sendMessage = async () => {
+            const input = document.getElementById('msg-input');
+            const btn = document.getElementById('send-btn');
+            if (input.disabled || btn.disabled) return;
+            
+            const text = input.value.trim();
+            if(!text || !currentTarget) return;
+            input.value = '';
+            
+            appendMessage('me', text);
+            await storeMessage(currentTarget, 'me', text);
+            
+            const cipher = await encryptText(text, targetPublicKeyStr);
+            socket.emit('send_message', { from: currentUser, to: currentTarget, payload: cipher });
+        };
+
+        const appendMessage = (type, text) => {
+            const box = document.getElementById('chat-box');
+            if (type === 'sys') {
+                box.innerHTML += `<div class="sys-msg">${text}</div>`;
+            } else {
+                const safe = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                box.innerHTML += `<div class="msg-row ${type}"><div class="msg-bubble">${safe}</div></div>`;
+            }
+            box.scrollTop = box.scrollHeight;
+        };
+
+        const exportData = async () => {
+            const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').getAll(); req.onsuccess = () => r(req.result); });
+            const msgs = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
+            
+            const exportKeys = await Promise.all(keys.map(async k => {
+                const priv = await window.crypto.subtle.exportKey("jwk", k.privateKey);
+                const pub = await window.crypto.subtle.exportKey("jwk", k.publicKey);
+                return { username: k.username, privateKey: priv, publicKey: pub };
+            }));
+
+            const blob = new Blob([JSON.stringify({ keys: exportKeys, msgs })], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `backup_${Date.now()}.json`;
+            a.click();
+        };
+
+        const importData = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async e => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    const tx = db.transaction(['keys', 'messages'], 'readwrite');
+                    
+                    for (const k of data.keys) {
+                        const priv = await window.crypto.subtle.importKey("jwk", k.privateKey, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+                        const pub = await window.crypto.subtle.importKey("jwk", k.publicKey, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+                        tx.objectStore('keys').put({ username: k.username, privateKey: priv, publicKey: pub });
+                    }
+                    data.msgs.forEach(m => { delete m.id; tx.objectStore('messages').add(m); });
+                    
+                    tx.oncomplete = () => alert('恢复成功！');
+                } catch(err) { alert('恢复失败'); }
+            };
+            reader.readAsText(file);
+        };
+
+        window.onload = initDB;
+    </script>
+</body>
+</html>
