@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>隐语</title>
+    <title>Zeno</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <style>
-        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; --border: #334155; --text-muted: #94a3b8;}
-        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --border: #334155; --text-muted: #94a3b8; --nav-bg: #162032;}
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
         .hidden { display: none !important; }
         input, button { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); outline: none; font-size: 15px; transition: all 0.2s; }
         input { background: #0f172a; color: white; }
@@ -16,15 +16,33 @@
         button:active { transform: scale(0.98); }
         button.secondary { background: #334155; }
         button.danger { background: var(--danger); }
-        .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; }
+        button.success { background: var(--success); }
+        .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; box-sizing: border-box;}
         .panel { background: var(--panel); padding: 30px 25px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .brand-header { text-align: center; margin-bottom: 25px; }
-        .guide-box { background: rgba(59, 130, 246, 0.1); border-radius: 10px; padding: 15px; margin-top: 20px; border: 1px solid rgba(59, 130, 246, 0.2); }
-        .guide-box h4 { margin: 0 0 10px 0; font-size: 14px; color: var(--primary); }
-        .guide-box ol { margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 12px; line-height: 1.8; }
+        
+        /* 核心重构：多端自适应响应式布局 */
+        #app-layout { display: flex; flex-direction: column; height: 100vh; width: 100vw; background: var(--bg); }
+        .content-area { flex: 1; overflow-y: auto; padding: 20px; box-sizing: border-box; }
+        .nav-bar { display: flex; background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); z-index: 50;}
+        .nav-item { flex: 1; text-align: center; padding: 15px 0; cursor: pointer; color: var(--text-muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative;}
+        .nav-item.active { color: var(--primary); }
+        .nav-icon { font-size: 20px; }
+        .badge { background: var(--danger); color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; position: absolute; top: 5px; right: 20%; font-weight: bold; }
+
+        @media (min-width: 768px) {
+            #app-layout { flex-direction: row; }
+            .nav-bar { flex-direction: column; width: 220px; border-top: none; border-right: 1px solid var(--border); padding-top: 20px; justify-content: flex-start; gap: 10px;}
+            .nav-item { flex: none; flex-direction: row; padding: 15px 25px; font-size: 16px; justify-content: flex-start; gap: 15px;}
+            .badge { top: 15px; right: 20px; }
+            .content-area { max-width: 800px; margin: 0 auto; width: 100%; }
+        }
+
         .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; position: relative; }
-        #chat-view, #settings-view { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: fixed; inset: 0; z-index: 10; }
-        .header-bar { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
+        .profile-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid var(--border); padding: 30px; border-radius: 16px; text-align: center; margin-bottom: 20px;}
+        .profile-uid { font-size: 32px; font-weight: bold; letter-spacing: 4px; margin: 15px 0; color: #fff; font-family: monospace;}
+        
+        #chat-view { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: fixed; inset: 0; z-index: 100; }
+        .header-bar { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-top: max(15px, env(safe-area-inset-top));}
         #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
         .msg-row { display: flex; width: 100%; flex-direction: column; }
         .me { align-items: flex-end; }
@@ -32,54 +50,99 @@
         .msg-bubble { max-width: 75%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; }
         .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
         .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
+        .sys-bubble { background: transparent; color: var(--text-muted); font-size: 12px; text-align: center; width: 100%; padding: 5px 0;}
         .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
-        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; }
+        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(15px, env(safe-area-inset-bottom));}
         #chat-input-area input { margin: 0; }
         .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; }
         .recording { background: var(--danger) !important; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
-        .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
-        #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:100; }
-        #webrtc-view { position: fixed; inset: 0; background: #000; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
+        #webrtc-view { position: fixed; inset: 0; background: #000; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         #remote-video { width: 100%; height: 100%; object-fit: cover; }
-        #local-video { position: absolute; top: 20px; right: 20px; width: 100px; height: 150px; border-radius: 10px; object-fit: cover; border: 2px solid #fff; }
+        #local-video { position: absolute; top: max(20px, env(safe-area-inset-top)); right: 20px; width: 100px; height: 150px; border-radius: 10px; object-fit: cover; border: 2px solid #fff; }
         .call-tools { position: absolute; bottom: 50px; display: flex; gap: 30px; }
         .circle-btn { width: 65px; height: 65px; border-radius: 50%; font-size: 24px; }
         .tick-read { color: var(--success); font-weight: bold; }
+        .flex { display: flex; gap: 10px;}
     </style>
 </head>
 <body>
     <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
 
-    <div id="auth-view" class="container">
-        <div class="panel">
-            <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>隐语</h2><p>安全 · 私密 · 无痕</p></div>
-            <input type="text" id="uid-input" placeholder="8位数字 UID (登录用)" maxlength="8">
-            <input type="password" id="password" placeholder="安全密码">
-            <button onclick="login()">登 录</button>
-            <button class="secondary" onclick="register()">创建新账号</button>
-            <div class="guide-box">
-                <h4>使用说明：</h4>
-                <ol>
-                    <li><b>通知权限：</b>登录后请开启通知权限，确保后台能收到实时提醒。 </li>
-                    <li><b>注册：</b>点击“创建账号”设置昵称，系统将分配 8 位 UID。</li>
-                    <li><b>身份：</b>UID + 密码是唯一凭证，更换设备需手动输入。</li>
-                    <li><b>备份：</b>消息仅存本地，更换手机请先点击“导出备份”。</li>
-                </ol>
-            </div>
-            <div class="flex" style="margin-top:20px;"><button class="secondary btn-sm" onclick="exportData()">💾 导出备份</button><button class="secondary btn-sm" onclick="document.getElementById('import-file').click()">📂 导入</button><input type="file" id="import-file" class="hidden" onchange="importData(event)"></div>
+    <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary);">
+            <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
+            <p style="color: var(--text-muted); font-size: 14px;">此 UID 无法通过手机号找回，请务必截图或复制保存！</p>
+            <div class="profile-uid" id="new-uid-display"></div>
+            <button class="secondary" onclick="copyNewUid()" style="margin-bottom: 12px;">📋 一键复制 UID</button>
+            <button class="success" onclick="document.getElementById('uid-modal').classList.add('hidden')">✅ 我已妥善保存，去登录</button>
         </div>
     </div>
 
-    <div id="main-view" class="container hidden">
+    <div id="auth-view" class="container">
         <div class="panel">
-            <div class="flex" style="justify-content:space-between; align-items:center;">
-                <div><span id="my-name" style="font-weight:bold; font-size:18px;"></span><br><span id="my-uid" style="color:var(--text-muted); font-size:12px;"></span></div>
-                <button class="secondary" style="width:auto; padding:8px 12px;" onclick="openSettings()">⚙️</button>
+            <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>Zeno</h2><p>安全 · 私密 · 无痕</p></div>
+            <input type="text" id="uid-input" placeholder="8位数字 UID" maxlength="8">
+            <input type="password" id="password" placeholder="安全密码">
+            <button onclick="login()">登 录</button>
+            <button class="secondary" onclick="register()">创建新账号</button>
+            <div class="flex" style="margin-top:20px;"><button class="secondary" style="font-size:13px;" onclick="exportData()">💾 导出数据</button><button class="secondary" style="font-size:13px;" onclick="document.getElementById('import-file').click()">📂 导入恢复</button><input type="file" id="import-file" class="hidden" onchange="importData(event)"></div>
+        </div>
+    </div>
+
+    <div id="app-layout" class="hidden">
+        <div class="content-area">
+            <div id="tab-msgs">
+                <h2 style="margin-top:0;">会话</h2>
+                <div id="msg-list"></div>
             </div>
-            <div class="flex" style="margin:15px 0;"><input type="text" id="add-contact-input" placeholder="输入好友 UID" style="margin:0;"><button class="success" style="width:80px; margin:0;" onclick="addContact()">添加</button></div>
-            <div id="user-list" style="max-height:400px; overflow-y:auto;"></div>
+
+            <div id="tab-contacts" class="hidden">
+                <h2 style="margin-top:0;">联系人</h2>
+                <div id="user-list"></div>
+            </div>
+
+            <div id="tab-requests" class="hidden">
+                <h2 style="margin-top:0;">添加好友</h2>
+                <div class="flex" style="margin-bottom: 25px;">
+                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID 搜索" maxlength="8" style="margin:0;">
+                    <button class="primary" style="width:100px; margin:0;" onclick="searchAndRequest()">🔍 搜索</button>
+                </div>
+                <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求 (7天自动销毁)</h4>
+                <div id="request-list"></div>
+            </div>
+
+            <div id="tab-profile" class="hidden">
+                <h2 style="margin-top:0;">个人中心</h2>
+                <div class="profile-card">
+                    <div style="color:var(--text-muted); font-size:14px;">我的专属 UID</div>
+                    <div class="profile-uid" id="profile-uid-show"></div>
+                    <div style="font-size:20px; font-weight:bold; margin-bottom: 5px;" id="profile-name-show"></div>
+                </div>
+                <h4 style="color:var(--text-muted);">资料修改</h4>
+                <input type="text" id="settings-nickname" placeholder="修改昵称">
+                <button onclick="saveProfile()" style="margin-bottom: 30px;">更新资料</button>
+                
+                <h4 style="color:var(--text-muted);">数据安全管理</h4>
+                <button class="secondary" onclick="exportData()">💾 导出本地加密数据包</button>
+                <button class="danger" onclick="if(confirm('警告：退出将清除当前内存状态，下次需重新输入密码。')) location.reload();" style="margin-top: 15px;">🚪 退出登录</button>
+            </div>
+        </div>
+
+        <div class="nav-bar">
+            <div class="nav-item active" onclick="switchTab('msgs', this)">
+                <span class="nav-icon">💬</span><span>消息</span><span id="badge-msgs" class="badge hidden"></span>
+            </div>
+            <div class="nav-item" onclick="switchTab('contacts', this)">
+                <span class="nav-icon">👥</span><span>联系人</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('requests', this)">
+                <span class="nav-icon">👋</span><span>新朋友</span><span id="badge-reqs" class="badge hidden"></span>
+            </div>
+            <div class="nav-item" onclick="switchTab('profile', this)">
+                <span class="nav-icon">⚙️</span><span>我的</span>
+            </div>
         </div>
     </div>
 
@@ -98,12 +161,8 @@
         </div>
     </div>
 
-    <div id="settings-view" class="container hidden">
-        <div class="panel"><h3>设置</h3><input type="text" id="settings-nickname" placeholder="修改昵称"><button onclick="saveProfile()">保存</button><button class="secondary" onclick="closeSettings()">返回</button></div>
-    </div>
-
     <div id="webrtc-view" class="hidden">
-        <h3 id="call-status" style="position:absolute; top:40px; color:#fff; z-index:10;">呼叫中...</h3>
+        <h3 id="call-status" style="position:absolute; top:max(40px, env(safe-area-inset-top)); color:#fff; z-index:10;">呼叫中...</h3>
         <video id="remote-video" autoplay playsinline></video>
         <video id="local-video" autoplay playsinline muted></video>
         <div class="call-tools" id="call-tools"><button class="danger circle-btn" onclick="endCall()">☎</button></div>
@@ -112,24 +171,14 @@
 
     <script>
         let db, currentUid, currentNickname, currentToken, currentTargetUid, socket, peerConnection, localStream;
-        let onlineUsers = new Set(), unreadMap = {}, chatHistory = [], lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
+        let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
         const STUN = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        // 核心优化：后台通知申请
-        const requestNotifyPermission = () => {
-            if ("Notification" in window && Notification.permission !== "denied") {
-                Notification.requestPermission();
-            }
-        };
-
-        const showPushNotification = (fromName, text) => {
-            if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
-                new Notification(`隐语 - ${fromName}`, { body: text, icon: '🛡️' });
-            }
-        };
+        const requestNotifyPermission = () => { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); };
+        const showPushNotification = (fromName, text) => { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${fromName}`, { body: text, icon: '🛡️' }); };
 
         const initDB = () => new Promise((res) => {
-            const req = indexedDB.open('SecureChatDB', 7);
+            const req = indexedDB.open('SecureChatDB', 8);
             req.onupgradeneeded = e => {
                 const idb = e.target.result;
                 if (!idb.objectStoreNames.contains('keys')) idb.createObjectStore('keys', { keyPath: 'uid' });
@@ -161,31 +210,78 @@
             }
         };
 
-        const login = async () => {
-            const u = document.getElementById('uid-input').value, p = document.getElementById('password').value;
-            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
+        const register = async () => {
+            const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
+            const nick = prompt("请输入您的专属昵称："); if(!nick || nick.trim() === '') return;
+            const keys = await cryptoOp.gen();
+            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: nick.trim(), password: p, public_key: await cryptoOp.export(keys.publicKey) }) }).then(r=>r.json());
             if(res.error) return alert(res.error);
+            const tx = db.transaction('keys', 'readwrite'); tx.objectStore('keys').put({ uid: res.uid, nick: nick.trim(), priv: keys.privateKey, pub: keys.publicKey });
+            document.getElementById('uid-input').value = res.uid;
+            document.getElementById('new-uid-display').innerText = res.uid;
+            document.getElementById('uid-modal').classList.remove('hidden');
+        };
+
+        const copyNewUid = () => { navigator.clipboard.writeText(document.getElementById('new-uid-display').innerText).then(() => alert('UID 已复制！')).catch(() => alert('复制失败，请手动记录。')); };
+
+        const login = async () => {
+            const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
+            if(!u || !p) return alert('请输入 UID 和密码');
+            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
+            if(res.error) return alert('验证失败');
             const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(u); req.onsuccess = () => r(req.result); });
-            if(!keys) return alert("本地缺失密钥");
+            if(!keys) return alert("本地缺失解密私钥，如果您更换了设备，请先导入备份文件。");
+            
             currentUid = u; currentNickname = res.nickname; currentToken = res.token;
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
-            document.getElementById('auth-view').classList.add('hidden'); document.getElementById('main-view').classList.remove('hidden');
-            document.getElementById('my-name').innerText = res.nickname; document.getElementById('my-uid').innerText = "UID: " + u;
-            requestNotifyPermission(); // 登录后立即申请通知权限
-            initSocket(); renderContacts();
+            document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
+            
+            // 渲染个人中心
+            document.getElementById('profile-uid-show').innerText = u;
+            document.getElementById('profile-name-show').innerText = currentNickname;
+            document.getElementById('settings-nickname').value = currentNickname;
+            
+            requestNotifyPermission(); initSocket(); renderUI();
+        };
+
+        const switchTab = (tabId, element) => {
+            ['msgs', 'contacts', 'requests', 'profile'].forEach(id => document.getElementById(`tab-${id}`).classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.remove('tab-hidden');
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            element.classList.add('active');
+            if(tabId === 'requests') { document.getElementById('badge-reqs').classList.add('hidden'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); }
         };
 
         const initSocket = () => {
             socket = io({ transports: ['websocket'], reconnectionAttempts: 20 });
-            socket.on('connect', () => { document.getElementById('network-bar').classList.add('hidden'); socket.emit('register_socket', { uid: currentUid, token: currentToken }); });
+            socket.on('connect', () => { document.getElementById('network-bar').classList.add('hidden'); socket.emit('register_socket', { uid: currentUid, token: currentToken }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken});});
             socket.on('disconnect', () => document.getElementById('network-bar').classList.remove('hidden'));
-            socket.on('online_users', d => { d.users.forEach(u => onlineUsers.add(u)); renderContacts(); });
-            socket.on('user_status', d => { d.status === 'online' ? onlineUsers.add(d.uid) : onlineUsers.delete(d.uid); renderContacts(); if(currentTargetUid===d.uid) updateStatusUI(); });
+            socket.on('online_users', d => { d.users.forEach(u => onlineUsers.add(u)); renderUI(); });
+            socket.on('user_status', d => { d.status === 'online' ? onlineUsers.add(d.uid) : onlineUsers.delete(d.uid); renderUI(); if(currentTargetUid===d.uid) updateStatusUI(); });
             socket.on('receive_message', async d => processMsg(d));
             socket.on('offline_sync', ds => ds.forEach(d => processMsg(d)));
             socket.on('msg_ack', d => updateTick(d.msgId, 1));
             socket.on('msg_read', d => updateTick(d.msgId, 2));
             socket.on('webrtc_signal', handleSignal);
+            
+            // 好友请求信令
+            socket.on('new_friend_request', () => { document.getElementById('badge-reqs').innerText = '新'; document.getElementById('badge-reqs').classList.remove('hidden'); });
+            socket.on('friend_requests_data', async (arr) => {
+                const list = document.getElementById('request-list'); list.innerHTML = '';
+                if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无新的好友请求</div>';
+                const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
+                for(let r of arr) {
+                    try {
+                        const plain = await cryptoOp.dec(r.payload, keys.priv);
+                        const senderInfo = JSON.parse(plain);
+                        const div = document.createElement('div'); div.className = 'list-item';
+                        div.innerHTML = `<div><span style="font-weight:bold;">${senderInfo.n}</span><br><span style="font-size:11px;color:#94a3b8;">UID: ${senderInfo.u}</span><br><span style="font-size:10px;color:#64748b;">${new Date(r.ts).toLocaleString()}</span></div>
+                        <div class="flex"><button class="success" style="width:auto;padding:5px 15px;" onclick="acceptReq('${r.id}','${senderInfo.u}','${senderInfo.n}','${senderInfo.p}')">同意</button><button class="danger" style="width:auto;padding:5px 15px;" onclick="rejectReq('${r.id}')">忽略</button></div>`;
+                        list.appendChild(div);
+                    } catch(e) {}
+                }
+            });
         };
 
         const processMsg = async (d) => {
@@ -193,78 +289,186 @@
                 const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
                 const plain = await cryptoOp.dec(d.payload, keys.priv);
                 const msg = JSON.parse(plain);
+                
+                // 监听系统自动回传的“同意好友请求”信令
+                if(msg.t === 'sys_accept') {
+                    const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: d.from }) }).then(r=>r.json());
+                    if(res.status === 'ok') {
+                        const tx = db.transaction('contacts', 'readwrite'); tx.objectStore('contacts').put({ uid: res.uid, nick: res.nickname, pub: res.public_key });
+                        showPushNotification("系统通知", `${res.nickname} 已通过你的好友请求`);
+                        renderUI();
+                    }
+                    return; // 系统信令不写入消息流
+                }
+
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
                 const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj);
                 
-                // 核心功能：触发手机后台通知
                 const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
-                const preview = msg.t === 'text' ? msg.c : '[媒体消息]';
-                showPushNotification(contact ? contact.nick : d.from, preview);
+                showPushNotification(contact ? contact.nick : d.from, msg.t === 'text' ? msg.c : '[媒体消息]');
 
-                if(currentTargetUid === d.from) { appendDOM(obj); socket.emit('msg_read', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
-                else { unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderContacts(); socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
+                if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { appendDOM(obj); boxScroll(); socket.emit('msg_read', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
+                else { unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderUI(); socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
             } catch(e) {}
         };
 
-        const renderContacts = async () => {
-            const list = document.getElementById('user-list'); list.innerHTML = '';
+        const renderUI = async () => {
+            const listC = document.getElementById('user-list'); listC.innerHTML = '';
+            const listM = document.getElementById('msg-list'); listM.innerHTML = '';
             const contacts = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').getAll(); req.onsuccess = () => r(req.result); });
+            
+            let totalUnread = 0;
+            if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">空空如也</div>'; }
+            
             contacts.forEach(c => {
-                const isOnline = onlineUsers.has(c.uid);
-                const unread = unreadMap[c.uid] || 0;
-                const div = document.createElement('div'); div.className = 'list-item';
-                div.innerHTML = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="unread-badge">${unread}</div>`:''}<button class="secondary" style="width:auto;padding:5px 15px;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">对话</button>`;
-                list.appendChild(div);
+                const isOnline = onlineUsers.has(c.uid); const unread = unreadMap[c.uid] || 0; totalUnread += unread;
+                const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
+                
+                const divC = document.createElement('div'); divC.className = 'list-item'; divC.innerHTML = html; listC.appendChild(divC);
+                // 仅当有未读消息，或作为演示，将所有联系人也放到消息列表（由于 SQLite 未做会话聚合查询，此处简化处理两边一致）
+                const divM = document.createElement('div'); divM.className = 'list-item'; divM.innerHTML = html; listM.appendChild(divM);
+            });
+            
+            const bMsgs = document.getElementById('badge-msgs');
+            if(totalUnread > 0) { bMsgs.innerText = totalUnread > 99 ? '99+' : totalUnread; bMsgs.classList.remove('hidden'); } else { bMsgs.classList.add('hidden'); }
+        };
+
+        // 好友双向确立体系
+        const searchAndRequest = async () => {
+            const u = document.getElementById('search-uid-input').value.trim(); if(!u || u === currentUid) return;
+            const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
+            if(res.error) return alert(res.error);
+            
+            const myKeys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
+            const payload = { u: currentUid, n: currentNickname, p: await cryptoOp.export(myKeys.pub) };
+            const enc = await cryptoOp.enc(JSON.stringify(payload), res.public_key);
+            
+            socket.emit('send_friend_request', { from: currentUid, token: currentToken, to: res.uid, payload: enc });
+            alert(`已向 ${res.nickname} 发送加密好友请求`);
+            document.getElementById('search-uid-input').value = '';
+        };
+
+        const rejectReq = (reqId) => { socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); };
+        
+        const acceptReq = async (reqId, fromUid, fromNick, fromPub) => {
+            // 保存对方为联系人
+            const tx = db.transaction('contacts', 'readwrite'); tx.objectStore('contacts').put({ uid: fromUid, nick: fromNick, pub: fromPub });
+            // 通知服务器销毁请求
+            socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId });
+            // 向对方盲发一条系统级同意信令，以便对方也能保存我
+            const payload = { id: Math.random().toString(36).substr(2, 9), t: 'sys_accept', c: 'ok' };
+            const enc = await cryptoOp.enc(JSON.stringify(payload), fromPub);
+            socket.emit('send_message', { from: currentUid, token: currentToken, to: fromUid, payload: enc });
+            
+            alert('已添加对方为好友');
+            socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken});
+            renderUI();
+        };
+
+        // 聊天逻辑
+        const loadMore = async (uid) => {
+            const tx = db.transaction('messages').objectStore('messages');
+            const idx = tx.index('contact'); const range = IDBKeyRange.only(uid);
+            let count = 0, msgs = [];
+            return new Promise(res => {
+                idx.openCursor(range, 'prev').onsuccess = e => {
+                    const cursor = e.target.result;
+                    if(cursor && count < 50) { if(!lastLoadedTs || cursor.value.ts < lastLoadedTs) { msgs.push(cursor.value); count++; } cursor.continue(); }
+                    else { if(msgs.length > 0) lastLoadedTs = msgs[msgs.length-1].ts; if(count < 50) isEnd = true; res(msgs.reverse()); }
+                };
             });
         };
 
-        // 其它业务函数保持不变... (addContact, cryptoOp.gen, sendMessage, startRecording等)
-        const register = async () => {
-            const p = document.getElementById('password').value; if(!p) return alert('输入密码');
-            const nick = prompt("昵称?"); if(!nick) return;
-            const keys = await cryptoOp.gen();
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: nick, password: p, public_key: await cryptoOp.export(keys.publicKey) }) }).then(r=>r.json());
-            if(res.error) return alert(res.error);
-            const tx = db.transaction('keys', 'readwrite'); tx.objectStore('keys').put({ uid: res.uid, nick, priv: keys.privateKey, pub: keys.publicKey });
-            alert("注册成功！你的 UID: " + res.uid);
+        const handleChatScroll = async () => {
+            const box = document.getElementById('chat-box');
+            if(box.scrollTop === 0 && !isEnd) { const oldHeight = box.scrollHeight; const prev = await loadMore(currentTargetUid); prev.reverse().forEach(m => prependDOM(m)); box.scrollTop = box.scrollHeight - oldHeight; }
         };
-        const addContact = async () => {
-            const u = document.getElementById('add-contact-input').value; if(!u) return;
-            const res = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
-            if(res.error) return alert(res.error);
-            const tx = db.transaction('contacts', 'readwrite'); tx.objectStore('contacts').put({ uid: res.uid, nick: res.nickname, pub: res.public_key });
-            renderContacts();
-        };
+
         const openChat = async (uid, name, pub) => {
-            currentTargetUid = uid; targetPublicKeyStr = pub; unreadMap[uid] = 0;
-            document.getElementById('main-view').classList.add('hidden'); document.getElementById('chat-view').classList.remove('hidden');
-            document.getElementById('chat-target-name').innerText = name; updateStatusUI();
-            document.getElementById('chat-box').innerHTML = '';
-            const tx = db.transaction('messages').objectStore('messages');
-            tx.index('contact').getAll(uid).onsuccess = e => e.target.result.sort((a,b)=>a.ts-b.ts).forEach(m=>appendDOM(m));
-            renderContacts();
+            currentTargetUid = uid; currentTargetName = name; targetPublicKeyStr = pub;
+            unreadMap[uid] = 0; lastLoadedTs = 0; isEnd = false;
+            document.getElementById('app-layout').classList.add('hidden'); document.getElementById('chat-view').classList.remove('hidden');
+            document.getElementById('chat-target-name').innerText = name; updateStatusUI(); document.getElementById('chat-box').innerHTML = '';
+            const msgs = await loadMore(uid); msgs.forEach(m => appendDOM(m)); boxScroll();
+            msgs.forEach(m => { if(m.type === 'other') socket.emit('msg_read', { from: currentUid, token: currentToken, to: uid, msgId: m.msgId }); });
+            renderUI();
         };
-        const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('main-view').classList.remove('hidden'); };
+
+        const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
+        
         const appendDOM = (m) => {
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
-            let html = m.mType==='text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType==='audio'?`<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`:`[媒体]`);
-            row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>`;
-            box.appendChild(row); box.scrollTop = box.scrollHeight;
+            let html = m.mType==='text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType==='audio'?`<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`:`<a href="${m.content}" download style="color:#fff;">📁 点击下载文件</a>`);
+            let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
+            row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
+            box.appendChild(row);
         };
+        const prependDOM = (m) => {
+            const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
+            let html = m.mType==='text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType==='audio'?`<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`:`<a href="${m.content}" download style="color:#fff;">📁 点击下载文件</a>`);
+            let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
+            row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
+            box.insertBefore(row, box.firstChild);
+        };
+
         const sendMessage = async (mType = 'text', content = null) => {
             const input = document.getElementById('msg-input'); const val = content || input.value.trim(); if(!val) return;
             if(!content) input.value = ''; const msgId = Math.random().toString(36).substr(2, 9); const ts = Date.now();
             const payload = { id: msgId, t: mType, c: val }; const obj = { contact: currentTargetUid, type: 'me', content: val, mType, ts, msgId, status: 0 };
-            const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj); appendDOM(obj);
+            const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj); appendDOM(obj); boxScroll();
             const enc = await cryptoOp.enc(JSON.stringify(payload), targetPublicKeyStr);
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: enc });
         };
+        
+        const handleFileUpload = (event) => { const file = event.target.files[0]; if (!file) return; if (file.size > 5 * 1024 * 1024) return alert('限制文件最大 5MB'); const reader = new FileReader(); reader.onload = async (e) => { await sendMessage('file', e.target.result); document.getElementById('file-upload').value = ''; }; reader.readAsDataURL(file); };
         const startRecording = async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaRecorder = new MediaRecorder(s); audioChunks = []; mediaRecorder.ondataavailable = e => audioChunks.push(e.data); mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); } catch(e) { alert("权限拒绝"); } };
         const stopRecording = () => { if(mediaRecorder) { mediaRecorder.stop(); document.getElementById('voice-btn').classList.remove('recording'); } };
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
-        const clearChat = () => { if(confirm("清空记录？")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
+        const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
+        const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
+        const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        window.onload = async () => { await initDB(); };
+        // 音视频逻辑保持不变
+        const startCall = async () => {
+            document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "等待接听...";
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); document.getElementById('local-video').srcObject = localStream; peerConnection = new RTCPeerConnection(STUN);
+                localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+                peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: e.candidate });
+                peerConnection.ontrack = e => document.getElementById('remote-video').srcObject = e.streams[0];
+                const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: offer });
+            } catch(e) { endCallLocal(); alert('获取摄像头失败'); }
+        };
+        const handleSignal = async (d) => {
+            if(d.type === 'offer') {
+                if(document.getElementById('webrtc-view').classList.contains('hidden') === false) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
+                document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "来电...";
+                peerConnection = new RTCPeerConnection(STUN);
+                peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: e.candidate });
+                peerConnection.ontrack = e => document.getElementById('remote-video').srcObject = e.streams[0];
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); activeCallTarget = d.from;
+            } else if(d.type === 'answer') { await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); document.getElementById('call-status').innerText = "通话中"; }
+            else if(d.type === 'ice') { await peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)); }
+            else if(d.type === 'busy') { alert("对方忙线中"); endCallLocal(); }
+            else if(d.type === 'reject') { alert("对方已拒绝"); endCallLocal(); }
+            else if(d.type === 'end') { endCallLocal(); }
+        };
+        const acceptCall = async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); document.getElementById('local-video').srcObject = localStream; localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+                const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: ans });
+                document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
+            } catch(e) { endCallLocal(); }
+        };
+        const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
+        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; };
+
+        const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('保存成功'); };
+        const exportData = async () => { const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)}); const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)}); const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)}); const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Zeno_${Date.now()}.json`; a.click(); };
+        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功！');location.reload();}; }catch(err){alert('失败');} }; r.readAsText(f); };
+
+        window.onload = async () => { await initDB(); const u = sessionStorage.getItem('chat_uid'); if(u) { document.getElementById('uid-input').value = u; } };
     </script>
 </body>
 </html>
