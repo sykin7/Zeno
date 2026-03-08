@@ -33,6 +33,7 @@
         #chat-input-area input { margin: 0; }
         #chat-input-area button { width: 80px; margin: 0; }
         .status-badge { font-size: 14px; font-weight: bold; margin-left: 8px; }
+        .fingerprint { font-size: 11px; color: #64748b; font-family: monospace; display: block; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -68,6 +69,7 @@
             <div>
                 <strong id="chat-target-name"></strong>
                 <span id="chat-target-status" class="status-badge"></span>
+                <span id="chat-target-fingerprint" class="fingerprint"></span>
             </div>
             <button class="secondary" style="width: auto; padding: 5px 15px; margin: 0;" onclick="closeChat()">返回</button>
         </div>
@@ -81,6 +83,7 @@
     <script>
         let db;
         let currentUser = null;
+        let currentToken = null;
         let currentTarget = null;
         let targetPublicKeyStr = null;
         let socket = null;
@@ -110,6 +113,14 @@
             const pubKeyBuf = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
             const pubKeyStr = btoa(String.fromCharCode(...new Uint8Array(pubKeyBuf)));
             return { keyPair, pubKeyStr };
+        };
+
+        const getFingerprint = async (pubKeyStr) => {
+            const binaryDer = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
+            const hashBuffer = await window.crypto.subtle.digest('SHA-256', binaryDer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hashHex.substring(0, 8).toUpperCase();
         };
 
         const storeKeys = (username, keyPair) => {
@@ -190,6 +201,7 @@
             if (!priv) return alert('本地未找到私钥，如果是新设备请先恢复数据');
             
             currentUser = u;
+            currentToken = res.token;
             document.getElementById('auth-view').classList.add('hidden');
             document.getElementById('main-view').classList.remove('hidden');
             document.getElementById('my-name').innerText = '当前: ' + u;
@@ -197,13 +209,14 @@
             loadUsers();
         };
 
-        const renderUserList = (users) => {
+        const renderUserList = async (users) => {
             const list = document.getElementById('user-list');
             list.innerHTML = '';
-            users.forEach(user => {
-                if(user.username === currentUser) return;
+            for (const user of users) {
+                if(user.username === currentUser) continue;
                 onlineStatusMap[user.username] = user.online;
                 
+                const fingerprint = await getFingerprint(user.public_key);
                 const div = document.createElement('div');
                 div.className = 'list-item';
                 const statusColor = user.online ? 'var(--success)' : 'var(--danger)';
@@ -213,11 +226,12 @@
                     <div>
                         <span>${user.username}</span>
                         <span class="status-badge" style="color:${statusColor}">${statusText}</span>
+                        <span class="fingerprint">指纹: ${fingerprint}</span>
                     </div>
-                    <button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="openChat('${user.username}', '${user.public_key}')">发消息</button>
+                    <button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="openChat('${user.username}', '${user.public_key}', '${fingerprint}')">发消息</button>
                 `;
                 list.appendChild(div);
-            });
+            }
         };
 
         const loadUsers = async () => {
@@ -247,7 +261,7 @@
 
         const initSocket = () => {
             socket = io();
-            socket.on('connect', () => socket.emit('register_socket', { username: currentUser }));
+            socket.on('connect', () => socket.emit('register_socket', { username: currentUser, token: currentToken }));
             
             socket.on('user_status', (data) => {
                 onlineStatusMap[data.username] = (data.status === 'online');
@@ -271,12 +285,13 @@
             });
         };
 
-        const openChat = async (targetUser, targetPubKey) => {
+        const openChat = async (targetUser, targetPubKey, fingerprint) => {
             currentTarget = targetUser;
             targetPublicKeyStr = targetPubKey;
             document.getElementById('main-view').classList.add('hidden');
             document.getElementById('chat-view').classList.remove('hidden');
             document.getElementById('chat-target-name').innerText = targetUser;
+            document.getElementById('chat-target-fingerprint').innerText = `密钥指纹: ${fingerprint}`;
             
             updateChatInputState(onlineStatusMap[targetUser] === true);
             
@@ -292,6 +307,10 @@
             document.getElementById('main-view').classList.remove('hidden');
         };
 
+        const escapeHTML = str => str.replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        }[tag] || tag));
+
         const sendMessage = async () => {
             const input = document.getElementById('msg-input');
             const btn = document.getElementById('send-btn');
@@ -305,7 +324,7 @@
             await storeMessage(currentTarget, 'me', text);
             
             const cipher = await encryptText(text, targetPublicKeyStr);
-            socket.emit('send_message', { from: currentUser, to: currentTarget, payload: cipher });
+            socket.emit('send_message', { from: currentUser, token: currentToken, to: currentTarget, payload: cipher });
         };
 
         const appendMessage = (type, text) => {
@@ -313,7 +332,7 @@
             if (type === 'sys') {
                 box.innerHTML += `<div class="sys-msg">${text}</div>`;
             } else {
-                const safe = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const safe = escapeHTML(text);
                 box.innerHTML += `<div class="msg-row ${type}"><div class="msg-bubble">${safe}</div></div>`;
             }
             box.scrollTop = box.scrollHeight;
