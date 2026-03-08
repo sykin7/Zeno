@@ -7,9 +7,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --border: #334155; --text-muted: #94a3b8; --nav-bg: #162032;}
-        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+        /* 引入 100dvh 动态视口，完美适配手机浏览器地址栏的展开与收起 */
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; -webkit-font-smoothing: antialiased; }
         .hidden { display: none !important; }
-        input, button { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); outline: none; font-size: 15px; transition: all 0.2s; }
+        /* 强制 16px 字体，这是 iOS Safari 不自动放大网页的硬性底线 */
+        input, button { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); outline: none; font-size: 16px; transition: all 0.2s; }
         input { background: #0f172a; color: white; }
         input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
         button { background: var(--primary); color: white; font-weight: bold; cursor: pointer; border: none; display: flex; justify-content: center; align-items: center; gap: 8px; }
@@ -17,12 +19,13 @@
         button.secondary { background: #334155; }
         button.danger { background: var(--danger); }
         button.success { background: var(--success); }
+        
         .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; box-sizing: border-box;}
         .panel { background: var(--panel); padding: 30px 25px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         
-        #app-layout { display: flex; flex-direction: column; height: 100vh; width: 100vw; background: var(--bg); }
-        .content-area { flex: 1; overflow-y: auto; padding: 20px; box-sizing: border-box; }
-        .nav-bar { display: flex; background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); z-index: 50;}
+        #app-layout { display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; background: var(--bg); }
+        .content-area { flex: 1; overflow-y: auto; padding: 20px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .nav-bar { display: flex; background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); z-index: 50; flex-shrink: 0;}
         .nav-item { flex: 1; text-align: center; padding: 15px 0; cursor: pointer; color: var(--text-muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative;}
         .nav-item.active { color: var(--primary); }
         .nav-icon { font-size: 20px; }
@@ -38,34 +41,35 @@
 
         .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; position: relative; }
         .profile-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid var(--border); padding: 30px; border-radius: 16px; text-align: center; margin-bottom: 20px;}
-        .profile-uid { font-size: 32px; font-weight: bold; letter-spacing: 4px; margin: 15px 0; color: #fff; font-family: monospace;}
+        .profile-uid { font-size: 32px; font-weight: bold; letter-spacing: 4px; margin: 15px 0; color: #fff; font-family: monospace; word-break: break-all;}
         
-        #chat-view { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: fixed; inset: 0; z-index: 100; }
-        .header-bar { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-top: max(15px, env(safe-area-inset-top));}
-        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        #chat-view { display: flex; flex-direction: column; height: 100vh; height: 100dvh; background: var(--bg); position: fixed; inset: 0; z-index: 100; }
+        .header-bar { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-top: max(15px, env(safe-area-inset-top)); flex-shrink: 0;}
+        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; -webkit-overflow-scrolling: touch; }
         .msg-row { display: flex; width: 100%; flex-direction: column; }
         .me { align-items: flex-end; }
         .other { align-items: flex-start; }
-        .msg-bubble { max-width: 75%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; }
+        .msg-bubble { max-width: 85%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; word-break: break-word; }
         .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
         .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
         .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
-        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(15px, env(safe-area-inset-bottom));}
-        #chat-input-area input { margin: 0; }
-        .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; }
+        #chat-input-area { padding: 10px 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(10px, env(safe-area-inset-bottom)); flex-shrink: 0;}
+        #chat-input-area input { margin: 0; flex: 1; }
+        #send-btn { width: auto; padding: 0 15px; margin: 0; height: 42px;}
+        .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; margin: 0; flex-shrink: 0;}
+        .clip-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; margin: 0; flex-shrink: 0; background: var(--secondary); display: flex; align-items: center; justify-content: center;}
         .recording { background: var(--danger) !important; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
         .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
         #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
         
-        /* 全新优化的纯语音通话 UI */
         #webrtc-view { position: fixed; inset: 0; background: #0f172a; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .call-avatar { width: 100px; height: 100px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 50px; margin-bottom: 20px; border: 2px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.3);}
         .call-name { font-size: 24px; font-weight: bold; color: white; margin-bottom: 10px; }
         .call-status-text { font-size: 14px; color: var(--text-muted); margin-bottom: 60px; }
         .call-tools { display: flex; gap: 40px; }
-        .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; }
+        .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; margin: 0;}
         .tick-read { color: var(--success); font-weight: bold; }
         .flex { display: flex; gap: 10px;}
     </style>
@@ -113,8 +117,8 @@
             <div id="tab-requests" class="hidden">
                 <h2 style="margin-top:0;">添加好友</h2>
                 <div class="flex" style="margin-bottom: 25px;">
-                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID 搜索" maxlength="8" style="margin:0;">
-                    <button class="primary" style="width:100px; margin:0;" onclick="searchAndRequest()">🔍 搜索</button>
+                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID" maxlength="8" style="margin:0;">
+                    <button class="primary" style="width:90px; margin:0;" onclick="searchAndRequest()">搜索</button>
                 </div>
                 <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求 (7天自动销毁)</h4>
                 <div id="request-list"></div>
@@ -148,12 +152,12 @@
     <div id="chat-view" class="hidden">
         <div class="header-bar">
             <div><strong id="chat-target-name"></strong><br><span id="chat-target-status" style="font-size:11px;"></span></div>
-            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px;" onclick="clearChat()">清空</button><button class="secondary" style="width:auto; padding:5px 15px;" onclick="closeChat()">返回</button></div>
+            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px; margin:0;" onclick="clearChat()">清空</button><button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="closeChat()">返回</button></div>
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
             <button class="secondary voice-btn" id="voice-btn" onmousedown="startRecording()" onmouseup="stopRecording()" ontouchstart="startRecording()" ontouchend="stopRecording()">🎤</button>
-            <button class="secondary" style="width:42px; height:42px; border-radius:50%;" onclick="document.getElementById('file-upload').click()">📎</button>
+            <button class="secondary clip-btn" onclick="document.getElementById('file-upload').click()">📎</button>
             <input type="file" id="file-upload" class="hidden" onchange="handleFileUpload(event)">
             <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
             <button id="send-btn" onclick="sendMessage()">发送</button>
@@ -161,25 +165,51 @@
     </div>
 
     <div id="webrtc-view" class="hidden">
-        <audio id="remote-audio" autoplay></audio>
-        
+        <audio id="remote-audio" autoplay playsinline></audio>
         <div class="call-avatar">👤</div>
         <div class="call-name" id="call-target-display-name">未知联系人</div>
         <div class="call-status-text" id="call-status">正在发起语音通话...</div>
-        
-        <div class="call-tools" id="call-tools">
-            <button class="danger circle-btn" onclick="endCall()">☎</button>
-        </div>
-        <div class="call-tools hidden" id="incoming-tools">
-            <button class="danger circle-btn" onclick="endCall()">☎</button>
-            <button class="success circle-btn" onclick="acceptCall()">📞</button>
-        </div>
+        <div class="call-tools" id="call-tools"><button class="danger circle-btn" onclick="endCall()">☎</button></div>
+        <div class="call-tools hidden" id="incoming-tools"><button class="danger circle-btn" onclick="endCall()">☎</button><button class="success circle-btn" onclick="acceptCall()">📞</button></div>
     </div>
 
     <script>
         let db, currentUid, currentNickname, currentToken, currentTargetUid, socket, peerConnection, localStream;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
         const STUN = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        // 终极麦克风获取与报错兼容引擎 (Polyfill & Error Handler)
+        const getMicrophoneAccess = async () => {
+            // 兼容非常老旧的安卓 Webview 引擎
+            if (navigator.mediaDevices === undefined) navigator.mediaDevices = {};
+            if (navigator.mediaDevices.getUserMedia === undefined) {
+                navigator.mediaDevices.getUserMedia = function(constraints) {
+                    var getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+                    if (!getUserMedia) return Promise.reject(new Error('BrowserNotSupported'));
+                    return new Promise((resolve, reject) => getUserMedia.call(navigator, constraints, resolve, reject));
+                }
+            }
+            try {
+                // 强制只请求音频，杜绝摄像头相关报错
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                return stream;
+            } catch (err) {
+                let errorMsg = "麦克风获取失败！\n原因：";
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errorMsg += "您（或系统）拒绝了麦克风权限。\n请进入手机【设置】-【应用权限】中，将当前浏览器的麦克风权限设为“允许”。";
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    errorMsg += "未检测到可用的麦克风硬件设备。";
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    errorMsg += "麦克风正被其他应用（如微信通话、录音机）独占，请先关闭它们。";
+                } else if (err.message === 'BrowserNotSupported' || err.name === 'NotSupportedError') {
+                    errorMsg += "当前浏览器内核太老，或当前网页未开启 HTTPS 加密传输，底层安全机制拦截了麦克风调用。";
+                } else {
+                    errorMsg += err.message || err.name;
+                }
+                alert(errorMsg);
+                throw err;
+            }
+        };
 
         const requestNotifyPermission = () => { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); };
         const showPushNotification = (fromName, text) => { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${fromName}`, { body: text, icon: '🛡️' }); };
@@ -230,12 +260,7 @@
             document.getElementById('uid-modal').classList.remove('hidden');
         };
 
-        const downloadBackupAndLogin = async () => {
-            const newUid = document.getElementById('new-uid-display').innerText;
-            await exportData(newUid); 
-            closeUidModal();
-        };
-
+        const downloadBackupAndLogin = async () => { const newUid = document.getElementById('new-uid-display').innerText; await exportData(newUid); closeUidModal(); };
         const closeUidModal = () => { document.getElementById('uid-modal').classList.add('hidden'); };
 
         const login = async () => {
@@ -257,26 +282,19 @@
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
-        const logout = () => {
-            if(confirm('确定要退出当前账号吗？\n只要您没有手动清理浏览器缓存，下次只需输入密码即可登录。')) {
-                sessionStorage.clear(); 
-                location.reload();      
-            }
-        };
+        const logout = () => { if(confirm('确定要退出当前账号吗？\n只要您没有手动清理缓存，下次只需输入密码即可登录。')) { sessionStorage.clear(); location.reload(); } };
 
         const exportData = async (targetUid = '') => {
             try {
                 const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)});
                 const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)});
                 const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)});
-                
                 if (keys.length === 0) { alert('当前没有任何账号数据可供备份！'); return; }
                 const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'});
                 const a = document.createElement('a'); a.href = URL.createObjectURL(b);
                 const idStr = targetUid ? `_UID_${targetUid}` : '';
-                a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; 
-                a.click();
-            } catch (error) { alert('导出失败，请检查浏览器是否允许下载文件！'); }
+                a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; a.click();
+            } catch (error) { alert('导出失败，请检查浏览器下载权限！'); }
         };
 
         const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请直接登录！');location.reload();}; }catch(err){alert('文件格式错误！');} }; r.readAsText(f); };
@@ -304,7 +322,7 @@
             socket.on('new_friend_request', () => { document.getElementById('badge-reqs').innerText = '新'; document.getElementById('badge-reqs').classList.remove('hidden'); });
             socket.on('friend_requests_data', async (arr) => {
                 const list = document.getElementById('request-list'); list.innerHTML = '';
-                if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无新的好友请求</div>';
+                if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无好友请求</div>';
                 const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
                 for(let r of arr) {
                     try {
@@ -312,7 +330,7 @@
                         const senderInfo = JSON.parse(plain);
                         const div = document.createElement('div'); div.className = 'list-item';
                         div.innerHTML = `<div><span style="font-weight:bold;">${senderInfo.n}</span><br><span style="font-size:11px;color:#94a3b8;">UID: ${senderInfo.u}</span><br><span style="font-size:10px;color:#64748b;">${new Date(r.ts).toLocaleString()}</span></div>
-                        <div class="flex"><button class="success" style="width:auto;padding:5px 15px;" onclick="acceptReq('${r.id}','${senderInfo.u}','${senderInfo.n}','${senderInfo.p}')">同意</button><button class="danger" style="width:auto;padding:5px 15px;" onclick="rejectReq('${r.id}')">忽略</button></div>`;
+                        <div class="flex"><button class="success" style="width:auto;padding:5px 15px;margin:0;" onclick="acceptReq('${r.id}','${senderInfo.u}','${senderInfo.n}','${senderInfo.p}')">同意</button><button class="danger" style="width:auto;padding:5px 15px;margin:0;" onclick="rejectReq('${r.id}')">忽略</button></div>`;
                         list.appendChild(div);
                     } catch(e) {}
                 }
@@ -324,20 +342,16 @@
                 const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
                 const plain = await cryptoOp.dec(d.payload, keys.priv);
                 const msg = JSON.parse(plain);
-                
                 if(msg.t === 'sys_accept') {
                     const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: d.from }) }).then(r=>r.json());
                     if(res.status === 'ok') {
                         const tx = db.transaction('contacts', 'readwrite'); tx.objectStore('contacts').put({ uid: res.uid, nick: res.nickname, pub: res.public_key });
-                        showPushNotification("系统通知", `${res.nickname} 已通过你的好友请求`);
-                        renderUI();
+                        showPushNotification("系统通知", `${res.nickname} 已通过你的请求`); renderUI();
                     }
                     return; 
                 }
-
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
                 const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj);
-                
                 const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
                 showPushNotification(contact ? contact.nick : d.from, msg.t === 'text' ? msg.c : '[媒体消息]');
 
@@ -350,18 +364,14 @@
             const listC = document.getElementById('user-list'); listC.innerHTML = '';
             const listM = document.getElementById('msg-list'); listM.innerHTML = '';
             const contacts = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').getAll(); req.onsuccess = () => r(req.result); });
-            
             let totalUnread = 0;
             if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">空空如也</div>'; }
-            
             contacts.forEach(c => {
                 const isOnline = onlineUsers.has(c.uid); const unread = unreadMap[c.uid] || 0; totalUnread += unread;
-                const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
-                
+                const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;margin:0;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
                 const divC = document.createElement('div'); divC.className = 'list-item'; divC.innerHTML = html; listC.appendChild(divC);
                 const divM = document.createElement('div'); divM.className = 'list-item'; divM.innerHTML = html; listM.appendChild(divM);
             });
-            
             const bMsgs = document.getElementById('badge-msgs');
             if(totalUnread > 0) { bMsgs.innerText = totalUnread > 99 ? '99+' : totalUnread; bMsgs.classList.remove('hidden'); } else { bMsgs.classList.add('hidden'); }
         };
@@ -370,14 +380,11 @@
             const u = document.getElementById('search-uid-input').value.trim(); if(!u || u === currentUid) return;
             const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
             if(res.error) return alert(res.error);
-            
             const myKeys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
             const payload = { u: currentUid, n: currentNickname, p: await cryptoOp.export(myKeys.pub) };
             const enc = await cryptoOp.enc(JSON.stringify(payload), res.public_key);
-            
             socket.emit('send_friend_request', { from: currentUid, token: currentToken, to: res.uid, payload: enc });
-            alert(`已向 ${res.nickname} 发送加密好友请求`);
-            document.getElementById('search-uid-input').value = '';
+            alert(`已发送加密请求给 ${res.nickname}`); document.getElementById('search-uid-input').value = '';
         };
 
         const rejectReq = (reqId) => { socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); };
@@ -388,10 +395,7 @@
             const payload = { id: Math.random().toString(36).substr(2, 9), t: 'sys_accept', c: 'ok' };
             const enc = await cryptoOp.enc(JSON.stringify(payload), fromPub);
             socket.emit('send_message', { from: currentUid, token: currentToken, to: fromUid, payload: enc });
-            
-            alert('已添加对方为好友');
-            socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken});
-            renderUI();
+            alert('已添加对方为好友'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); renderUI();
         };
 
         const loadMore = async (uid) => {
@@ -449,37 +453,37 @@
         };
         
         const handleFileUpload = (event) => { const file = event.target.files[0]; if (!file) return; if (file.size > 5 * 1024 * 1024) return alert('限制文件最大 5MB'); const reader = new FileReader(); reader.onload = async (e) => { await sendMessage('file', e.target.result); document.getElementById('file-upload').value = ''; }; reader.readAsDataURL(file); };
-        const startRecording = async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaRecorder = new MediaRecorder(s); audioChunks = []; mediaRecorder.ondataavailable = e => audioChunks.push(e.data); mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); } catch(e) { alert("权限拒绝"); } };
-        const stopRecording = () => { if(mediaRecorder) { mediaRecorder.stop(); document.getElementById('voice-btn').classList.remove('recording'); } };
+        
+        // 使用新写的兼容版 API 录音
+        const startRecording = async () => { try { const s = await getMicrophoneAccess(); mediaRecorder = new MediaRecorder(s); audioChunks = []; mediaRecorder.ondataavailable = e => audioChunks.push(e.data); mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); } catch(e) { /* Error already handled by getMicrophoneAccess */ } };
+        const stopRecording = () => { if(mediaRecorder && mediaRecorder.state !== 'inactive') { mediaRecorder.stop(); document.getElementById('voice-btn').classList.remove('recording'); } };
+        
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        // 核心修改：仅请求 audio: true，去除 video: true，实现纯语音通话
+        // 使用新写的兼容版 API 发起实时语音
         const startCall = async () => {
             document.getElementById('webrtc-view').classList.remove('hidden'); 
             document.getElementById('call-status').innerText = "正在等待对方接听...";
             document.getElementById('call-target-display-name').innerText = currentTargetName;
             try {
-                // 仅请求麦克风
-                localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true }); 
+                localStream = await getMicrophoneAccess(); 
                 peerConnection = new RTCPeerConnection(STUN);
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: e.candidate });
-                // 将接收到的音频流绑定到隐藏的 audio 标签
                 peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                 
                 const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: offer });
-            } catch(e) { endCallLocal(); alert('获取麦克风失败，请检查浏览器权限设置！'); }
+            } catch(e) { endCallLocal(); }
         };
         
         const handleSignal = async (d) => {
             if(d.type === 'offer') {
                 if(document.getElementById('webrtc-view').classList.contains('hidden') === false) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
                 
-                // 获取拨打者昵称
                 const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
                 document.getElementById('call-target-display-name').innerText = contact ? contact.nick : d.from;
                 
@@ -499,12 +503,11 @@
         
         const acceptCall = async () => {
             try {
-                // 仅请求麦克风
-                localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true }); 
+                localStream = await getMicrophoneAccess(); 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: ans });
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
-            } catch(e) { endCallLocal(); alert('获取麦克风失败，无法接听！'); }
+            } catch(e) { endCallLocal(); }
         };
         
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
