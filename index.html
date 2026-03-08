@@ -16,6 +16,7 @@
         button:active { opacity: 0.8; transform: scale(0.98); }
         button.secondary { background: #334155; }
         button.danger { background: var(--danger); }
+        button.success { background: var(--success); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         input:disabled { background: #1e293b; color: #94a3b8; }
         .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; }
@@ -31,15 +32,27 @@
         .msg-bubble { max-width: 70%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; }
         .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
         .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
-        .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; }
+        .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
         .sys-msg { text-align: center; color: #94a3b8; font-size: 12px; width: 100%; }
-        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 10px; }
+        #chat-input-area { padding: 15px; background: var(--panel); display: flex; gap: 10px; align-items: center; }
         #chat-input-area input { margin: 0; }
-        #chat-input-area button { width: 80px; margin: 0; }
+        #chat-input-area button { width: auto; margin: 0; padding: 0 15px; }
         .status-badge { font-size: 14px; font-weight: bold; margin-left: 8px; }
         .fingerprint { font-size: 11px; color: #64748b; font-family: monospace; display: block; margin-top: 4px; }
         .unread-badge { background: var(--danger); color: white; font-size: 12px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 15px; top: 15px; font-weight: bold; }
         #network-bar { background: var(--danger); color: white; text-align: center; font-size: 12px; padding: 5px; position: fixed; top: 0; width: 100%; z-index: 100; transition: 0.3s; }
+        .attach-btn { background: none; border: none; font-size: 20px; color: #94a3b8; padding: 0 5px; cursor: pointer; }
+        .media-content img, .media-content video { max-width: 100%; border-radius: 8px; margin-top: 5px; }
+        .call-btn { background: var(--success); color: white; border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        #webrtc-view { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #remote-video { width: 100%; max-height: 80vh; background: #000; }
+        #local-video { position: absolute; bottom: 100px; right: 20px; width: 100px; height: 150px; background: #222; border-radius: 8px; object-fit: cover; }
+        .call-controls { position: absolute; bottom: 30px; display: flex; gap: 20px; }
+        .call-end-btn { background: var(--danger); color: white; border: none; border-radius: 50%; width: 60px; height: 60px; cursor: pointer; font-size: 24px; }
+        .call-accept-btn { background: var(--success); color: white; border: none; border-radius: 50%; width: 60px; height: 60px; cursor: pointer; font-size: 24px; }
+        .tick-sent { color: #64748b; }
+        .tick-delivered { color: #94a3b8; }
+        .tick-read { color: var(--success); font-weight: bold; }
     </style>
 </head>
 <body>
@@ -73,7 +86,7 @@
             </div>
             <div class="flex" style="margin-bottom: 15px; margin-top: 15px;">
                 <input type="text" id="add-contact-input" placeholder="输入精准 8位 UID 添加" style="margin:0;" maxlength="8">
-                <button class="success" style="width:100px; margin:0; background:var(--success)" onclick="addContact()">➕ 添加</button>
+                <button class="success" style="width:100px; margin:0;" onclick="addContact()">➕ 添加</button>
             </div>
             <div id="user-list" style="max-height: 400px; overflow-y: auto; padding-right: 5px;"></div>
         </div>
@@ -86,15 +99,31 @@
                 <span id="chat-target-status" class="status-badge"></span>
                 <span id="chat-target-uid" class="fingerprint"></span>
             </div>
-            <div class="flex">
-                <button class="danger" style="width: auto; padding: 5px 10px; margin: 0; font-size: 12px;" onclick="clearChat()">清空记录</button>
+            <div class="flex" style="align-items: center;">
+                <button class="call-btn" onclick="startCall()">📞</button>
+                <button class="danger" style="width: auto; padding: 5px 10px; margin: 0; font-size: 12px;" onclick="clearChat()">清空</button>
                 <button class="secondary" style="width: auto; padding: 5px 15px; margin: 0;" onclick="closeChat()">返回</button>
             </div>
         </div>
         <div id="chat-box"></div>
         <div id="chat-input-area">
+            <button class="attach-btn" onclick="document.getElementById('file-upload').click()">📎</button>
+            <input type="file" id="file-upload" class="hidden" onchange="handleFileUpload(event)">
             <input type="text" id="msg-input" placeholder="输入消息..." maxlength="5000" onkeypress="if(event.keyCode==13) sendMessage()">
             <button id="send-btn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <div id="webrtc-view" class="hidden">
+        <h3 id="call-status" style="position: absolute; top: 20px; color: white;">呼叫中...</h3>
+        <video id="remote-video" autoplay playsinline></video>
+        <video id="local-video" autoplay playsinline muted></video>
+        <div class="call-controls" id="call-controls">
+            <button class="call-end-btn" onclick="endCall()">☎</button>
+        </div>
+        <div class="call-controls hidden" id="incoming-controls">
+            <button class="call-accept-btn" onclick="acceptCall()">📞</button>
+            <button class="call-end-btn" onclick="endCall()">☎</button>
         </div>
     </div>
 
@@ -112,14 +141,20 @@
         let onlineStatusMap = {};
         let unreadCountMap = {};
 
+        let peerConnection = null;
+        let localStream = null;
+        let isCalling = false;
+        let activeCallTarget = null;
+        const stunServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
         const initDB = () => {
             return new Promise((resolve, reject) => {
-                const req = indexedDB.open('SecureChatDB', 3); 
+                const req = indexedDB.open('SecureChatDB', 4); 
                 req.onupgradeneeded = e => {
                     const idb = e.target.result;
                     if (!idb.objectStoreNames.contains('keys')) idb.createObjectStore('keys', { keyPath: 'uid' });
                     if (!idb.objectStoreNames.contains('messages')) {
-                        const msgStore = idb.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
+                        const msgStore = idb.createObjectStore('messages', { keyPath: 'msgId' });
                         msgStore.createIndex('contact', 'contact', { unique: false });
                     }
                     if (!idb.objectStoreNames.contains('contacts')) {
@@ -132,10 +167,7 @@
         };
 
         const generateKeys = async () => {
-            const keyPair = await window.crypto.subtle.generateKey(
-                { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-                true, ["encrypt", "decrypt"]
-            );
+            const keyPair = await window.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["encrypt", "decrypt"]);
             const pubKeyBuf = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
             const pubKeyStr = btoa(String.fromCharCode(...new Uint8Array(pubKeyBuf)));
             return { keyPair, pubKeyStr };
@@ -145,8 +177,7 @@
             const binaryDer = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
             const hashBuffer = await window.crypto.subtle.digest('SHA-256', binaryDer);
             const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            return hashHex.substring(0, 8).toUpperCase();
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 8).toUpperCase();
         };
 
         const storeKeys = (uid, nickname, keyPair) => {
@@ -165,11 +196,34 @@
             });
         };
 
-        const storeMessage = (contactUid, type, text, ts) => {
+        const generateUUID = () => {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        };
+
+        const storeMessage = (msgObj) => {
             return new Promise((resolve) => {
                 const tx = db.transaction('messages', 'readwrite');
-                tx.objectStore('messages').add({ contact: contactUid, type, text, timestamp: ts || Date.now() });
+                tx.objectStore('messages').put(msgObj);
                 tx.oncomplete = resolve;
+            });
+        };
+
+        const updateMessageStatus = (msgId, status) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('messages', 'readwrite');
+                const store = tx.objectStore('messages');
+                const req = store.get(msgId);
+                req.onsuccess = () => {
+                    const data = req.result;
+                    if (data) {
+                        data.status = Math.max(data.status || 0, status);
+                        store.put(data);
+                        resolve(data);
+                    } else resolve(null);
+                };
             });
         };
 
@@ -178,7 +232,10 @@
                 const tx = db.transaction('messages', 'readonly');
                 const index = tx.objectStore('messages').index('contact');
                 const req = index.getAll(contactUid);
-                req.onsuccess = () => resolve(req.result);
+                req.onsuccess = () => {
+                    const sorted = req.result.sort((a,b) => a.timestamp - b.timestamp);
+                    resolve(sorted);
+                };
             });
         };
 
@@ -204,99 +261,64 @@
                 tx.objectStore('contacts').delete(uid);
                 tx.oncomplete = resolve;
             });
-        }
+        };
 
-        const encryptText = async (text, pubKeyStr) => {
+        const encryptData = async (jsonStr, pubKeyStr) => {
             const binaryDer = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
-            const rsaPubKey = await window.crypto.subtle.importKey(
-                "spki", binaryDer.buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
-            );
-            
-            const aesKey = await window.crypto.subtle.generateKey(
-                { name: "AES-GCM", length: 256 }, true, ["encrypt"]
-            );
-            
+            const rsaPubKey = await window.crypto.subtle.importKey("spki", binaryDer.buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+            const aesKey = await window.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
             const iv = window.crypto.getRandomValues(new Uint8Array(12));
-            const encoded = new TextEncoder().encode(text);
-            const cipherText = await window.crypto.subtle.encrypt(
-                { name: "AES-GCM", iv: iv }, aesKey, encoded
-            );
-            
+            const encoded = new TextEncoder().encode(jsonStr);
+            const cipherText = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aesKey, encoded);
             const rawAesKey = await window.crypto.subtle.exportKey("raw", aesKey);
-            const encryptedAesKey = await window.crypto.subtle.encrypt(
-                { name: "RSA-OAEP" }, rsaPubKey, rawAesKey
-            );
-            
-            const pack = {
+            const encryptedAesKey = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, rsaPubKey, rawAesKey);
+            return JSON.stringify({
                 k: btoa(String.fromCharCode(...new Uint8Array(encryptedAesKey))),
                 i: btoa(String.fromCharCode(...new Uint8Array(iv))),
                 c: btoa(String.fromCharCode(...new Uint8Array(cipherText)))
-            };
-            return JSON.stringify(pack);
+            });
         };
 
-        const decryptText = async (payloadStr, privKey) => {
+        const decryptData = async (payloadStr, privKey) => {
             const pack = JSON.parse(payloadStr);
             const encryptedAesKey = Uint8Array.from(atob(pack.k), c => c.charCodeAt(0));
             const iv = Uint8Array.from(atob(pack.i), c => c.charCodeAt(0));
             const cipherText = Uint8Array.from(atob(pack.c), c => c.charCodeAt(0));
-            
-            const rawAesKey = await window.crypto.subtle.decrypt(
-                { name: "RSA-OAEP" }, privKey, encryptedAesKey.buffer
-            );
-            
-            const aesKey = await window.crypto.subtle.importKey(
-                "raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]
-            );
-            
-            const decrypted = await window.crypto.subtle.decrypt(
-                { name: "AES-GCM", iv: iv }, aesKey, cipherText.buffer
-            );
+            const rawAesKey = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, encryptedAesKey.buffer);
+            const aesKey = await window.crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]);
+            const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, cipherText.buffer);
             return new TextDecoder().decode(decrypted);
         };
 
         const apiCall = async (endpoint, payload) => {
-            const res = await fetch(endpoint, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-            });
+            const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             return res.json();
         };
 
         const register = async () => {
             const p = document.getElementById('password').value;
             if(!p) return alert('请输入密码后点击注册');
-            
             const nick = prompt("请设置您的专属昵称（例如：张三）：");
             if(!nick || nick.trim() === '') return alert('昵称不能为空');
-            
             const keys = await generateKeys();
             const res = await apiCall('/api/register', { nickname: nick.trim(), password: p, public_key: keys.pubKeyStr });
             if (res.error) return alert(res.error);
-            
             await storeKeys(res.uid, nick.trim(), keys.keyPair);
             document.getElementById('uid-input').value = res.uid;
-            alert(`🎉 注册成功！\n\n您的专属 UID 是：${res.uid}\n\n⚠️ 请务必截图或牢记此 8 位数字，它是您登录和添加好友的唯一凭证！`);
+            alert(`🎉 注册成功！\n\nUID：${res.uid}\n请务必牢记！`);
         };
 
         const login = async () => {
             const u = document.getElementById('uid-input').value.trim();
             const p = document.getElementById('password').value;
-            if(!u || !p) return alert('请输入 UID 和密码');
-            
+            if(!u || !p) return;
             const res = await apiCall('/api/login', { uid: u, password: p });
             if (res.error) return alert(res.error);
-            
             const priv = await getPrivateKey(u);
-            if (!priv) return alert('本地未找到私钥，如果是新设备请先恢复数据');
+            if (!priv) return alert('本地未找到私钥，请恢复数据');
             
-            currentUid = u;
-            currentNickname = res.nickname;
-            currentToken = res.token;
-            
-            sessionStorage.setItem('chat_uid', currentUid);
-            sessionStorage.setItem('chat_nick', currentNickname);
-            sessionStorage.setItem('chat_token', currentToken);
-
+            currentUid = u; currentNickname = res.nickname; currentToken = res.token;
+            sessionStorage.setItem('chat_uid', currentUid); sessionStorage.setItem('chat_nick', currentNickname); sessionStorage.setItem('chat_token', currentToken);
             document.getElementById('auth-view').classList.add('hidden');
             document.getElementById('main-view').classList.remove('hidden');
             document.getElementById('my-name').innerText = currentNickname;
@@ -309,12 +331,10 @@
             const u = document.getElementById('add-contact-input').value.trim();
             if (!u || u === currentUid) return;
             document.getElementById('add-contact-input').value = '';
-            
             const res = await apiCall('/api/contact', { uid: u });
             if (res.error) return alert(res.error);
-            
             await saveLocalContact(res.uid, res.nickname, res.public_key);
-            alert(`已成功添加好友: ${res.nickname} (UID: ${res.uid})`);
+            alert(`添加好友: ${res.nickname} 成功`);
             renderUserList();
         };
 
@@ -328,27 +348,16 @@
             const list = document.getElementById('user-list');
             list.innerHTML = '';
             const contacts = await getLocalContacts();
-            
-            if (contacts.length === 0) {
-                list.innerHTML = '<div style="text-align:center; color:#64748b; padding:20px;">暂无联系人，请在上方精准搜索 UID 添加</div>';
-                return;
-            }
-
+            if (contacts.length === 0) { list.innerHTML = '<div class="sys-msg">暂无联系人</div>'; return; }
             for (const contact of contacts) {
                 const isOnline = onlineStatusMap[contact.uid] === true;
                 const fingerprint = await getFingerprint(contact.publicKey);
                 const unread = unreadCountMap[contact.uid] || 0;
-                
                 const div = document.createElement('div');
                 div.className = 'list-item';
                 const statusColor = isOnline ? 'var(--success)' : 'var(--danger)';
                 const statusText = isOnline ? '[在线]' : '[离线]';
-                
-                let unreadHtml = '';
-                if (unread > 0) {
-                    unreadHtml = `<div class="unread-badge">${unread > 99 ? '99+' : unread}</div>`;
-                }
-                
+                let unreadHtml = unread > 0 ? `<div class="unread-badge">${unread > 99 ? '99+' : unread}</div>` : '';
                 div.innerHTML = `
                     <div style="flex:1;">
                         <span style="font-weight:bold; color:white;">${contact.nickname}</span>
@@ -360,67 +369,62 @@
                     <div class="flex" style="flex-direction: column; gap: 5px;">
                         <button class="secondary" style="width:auto; padding:5px 15px; margin:0; font-size:12px;" onclick="openChat('${contact.uid}', '${contact.nickname}', '${contact.publicKey}', '${fingerprint}')">发消息</button>
                         <button class="danger" style="width:auto; padding:5px 15px; margin:0; font-size:12px;" onclick="deleteContact('${contact.uid}', '${contact.nickname}')">移除</button>
-                    </div>
-                `;
+                    </div>`;
                 list.appendChild(div);
             }
         };
 
         const updateChatInputState = (isOnline) => {
+            const input = document.getElementById('msg-input');
+            const btn = document.getElementById('send-btn');
             const statusEl = document.getElementById('chat-target-status');
             if (isOnline) {
-                statusEl.innerText = "[在线]";
-                statusEl.style.color = "var(--success)";
+                input.disabled = false; btn.disabled = false;
+                input.placeholder = "输入消息..."; statusEl.innerText = "[在线]"; statusEl.style.color = "var(--success)";
             } else {
-                statusEl.innerText = "[离线]";
-                statusEl.style.color = "var(--danger)";
+                input.disabled = true; btn.disabled = true;
+                input.placeholder = "好友已离线"; statusEl.innerText = "[离线]"; statusEl.style.color = "var(--danger)";
             }
+        };
+
+        const emitReadReceipts = async (targetUid) => {
+            const msgs = await loadMessages(targetUid);
+            msgs.forEach(m => {
+                if (m.type === 'other' && (!m.status || m.status < 2)) {
+                    m.status = 2; storeMessage(m);
+                    socket.emit('msg_read', { from: currentUid, token: currentToken, to: targetUid, msgId: m.msgId });
+                }
+            });
         };
 
         const initSocket = () => {
             socket = io();
-            
-            socket.on('connect', () => {
-                document.getElementById('network-bar').classList.add('hidden');
-                socket.emit('register_socket', { uid: currentUid, token: currentToken });
-            });
-
-            socket.on('disconnect', () => {
-                document.getElementById('network-bar').classList.remove('hidden');
-            });
-            
-            socket.on('auth_failed', (data) => {
-                sessionStorage.removeItem('chat_uid');
-                sessionStorage.removeItem('chat_nick');
-                sessionStorage.removeItem('chat_token');
-                alert(data.error);
-                location.reload();
-            });
-
-            socket.on('online_users', (data) => {
-                data.users.forEach(u => onlineStatusMap[u] = true);
-                renderUserList();
-            });
-
+            socket.on('connect', () => { document.getElementById('network-bar').classList.add('hidden'); socket.emit('register_socket', { uid: currentUid, token: currentToken }); });
+            socket.on('disconnect', () => { document.getElementById('network-bar').classList.remove('hidden'); });
+            socket.on('auth_failed', (data) => { sessionStorage.clear(); alert(data.error); location.reload(); });
+            socket.on('online_users', (data) => { data.users.forEach(u => onlineStatusMap[u] = true); renderUserList(); });
             socket.on('user_status', (data) => {
                 onlineStatusMap[data.uid] = (data.status === 'online');
                 renderUserList();
-                if (currentTargetUid === data.uid) {
-                    updateChatInputState(data.status === 'online');
-                }
+                if (currentTargetUid === data.uid) updateChatInputState(data.status === 'online');
             });
 
             socket.on('receive_message', async (data) => {
                 try {
                     const privKey = await getPrivateKey(currentUid);
-                    const plain = await decryptText(data.payload, privKey);
-                    await storeMessage(data.from, 'other', plain, data.timestamp);
+                    const plainJSON = await decryptData(data.payload, privKey);
+                    const msgData = JSON.parse(plainJSON);
+                    const msgObj = { msgId: msgData.id, contact: data.from, type: 'other', content: msgData.content, dataType: msgData.type, name: msgData.name, timestamp: data.timestamp, status: 0 };
+                    await storeMessage(msgObj);
                     
-                    if (currentTargetUid === data.from) {
-                        appendMessage('other', plain, data.timestamp);
+                    if (currentTargetUid === data.from && !document.getElementById('chat-view').classList.contains('hidden')) {
+                        appendMessageDOM(msgObj);
+                        msgObj.status = 2; await storeMessage(msgObj);
+                        socket.emit('msg_read', { from: currentUid, token: currentToken, to: data.from, msgId: msgData.id });
                     } else {
                         unreadCountMap[data.from] = (unreadCountMap[data.from] || 0) + 1;
                         renderUserList();
+                        socket.emit('msg_ack', { from: currentUid, token: currentToken, to: data.from, msgId: msgData.id });
                     }
                 } catch(e) {}
             });
@@ -431,174 +435,239 @@
                 let needRender = false;
                 for (const msg of messages) {
                     try {
-                        const plain = await decryptText(msg.payload, privKey);
-                        await storeMessage(msg.from, 'other', plain, msg.timestamp);
-                        if (currentTargetUid === msg.from) {
-                            appendMessage('other', plain, msg.timestamp);
+                        const plainJSON = await decryptData(msg.payload, privKey);
+                        const msgData = JSON.parse(plainJSON);
+                        const msgObj = { msgId: msgData.id, contact: msg.from, type: 'other', content: msgData.content, dataType: msgData.type, name: msgData.name, timestamp: msg.timestamp, status: 0 };
+                        await storeMessage(msgObj);
+                        if (currentTargetUid === msg.from && !document.getElementById('chat-view').classList.contains('hidden')) {
+                            appendMessageDOM(msgObj);
+                            msgObj.status = 2; await storeMessage(msgObj);
+                            socket.emit('msg_read', { from: currentUid, token: currentToken, to: msg.from, msgId: msgData.id });
                         } else {
                             unreadCountMap[msg.from] = (unreadCountMap[msg.from] || 0) + 1;
                             needRender = true;
+                            socket.emit('msg_ack', { from: currentUid, token: currentToken, to: msg.from, msgId: msgData.id });
                         }
                     } catch(e) {}
                 }
                 if (needRender) renderUserList();
             });
-            
-            socket.on('message_error', (data) => {
-                if (currentTargetUid === data.to) appendMessage('sys', data.msg || '发生错误，消息拦截或丢失');
+
+            socket.on('msg_ack', async (data) => {
+                await updateMessageStatus(data.msgId, 1);
+                const tick = document.getElementById(`tick-${data.msgId}`);
+                if (tick) { tick.innerText = '✓✓'; tick.className = 'tick-delivered'; }
+            });
+
+            socket.on('msg_read', async (data) => {
+                await updateMessageStatus(data.msgId, 2);
+                const tick = document.getElementById(`tick-${data.msgId}`);
+                if (tick) { tick.innerText = '✓✓'; tick.className = 'tick-read'; }
+            });
+
+            socket.on('message_error', (data) => { if (currentTargetUid === data.to) alert(data.msg); });
+
+            socket.on('webrtc_signal', async (data) => {
+                if (data.type === 'offer') {
+                    if (isCalling) return;
+                    activeCallTarget = data.from;
+                    document.getElementById('webrtc-view').classList.remove('hidden');
+                    document.getElementById('call-controls').classList.add('hidden');
+                    document.getElementById('incoming-controls').classList.remove('hidden');
+                    document.getElementById('call-status').innerText = '收到视频通话请求...';
+                    peerConnection = new RTCPeerConnection(stunServers);
+                    peerConnection.onicecandidate = e => { if (e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: data.from, type: 'ice', candidate: e.candidate }); };
+                    peerConnection.ontrack = e => { document.getElementById('remote-video').srcObject = e.streams[0]; document.getElementById('call-status').innerText = '通话中'; };
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                } else if (data.type === 'answer' && peerConnection) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                } else if (data.type === 'ice' && peerConnection) {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+                } else if (data.type === 'end') {
+                    endCallLocal();
+                }
             });
         };
 
         const openChat = async (targetUid, targetName, targetPubKey, fingerprint) => {
-            currentTargetUid = targetUid;
-            currentTargetName = targetName;
-            targetPublicKeyStr = targetPubKey;
-            
-            unreadCountMap[targetUid] = 0;
-            renderUserList();
-            
-            document.getElementById('main-view').classList.add('hidden');
-            document.getElementById('chat-view').classList.remove('hidden');
+            currentTargetUid = targetUid; currentTargetName = targetName; targetPublicKeyStr = targetPubKey;
+            unreadCountMap[targetUid] = 0; renderUserList();
+            document.getElementById('main-view').classList.add('hidden'); document.getElementById('chat-view').classList.remove('hidden');
             document.getElementById('chat-target-name').innerText = targetName;
             document.getElementById('chat-target-uid').innerText = `UID: ${targetUid} | 指纹: ${fingerprint}`;
-            
             updateChatInputState(onlineStatusMap[targetUid] === true);
             
-            const box = document.getElementById('chat-box');
-            box.innerHTML = '';
+            const box = document.getElementById('chat-box'); box.innerHTML = '';
             const history = await loadMessages(targetUid);
-            history.forEach(msg => appendMessage(msg.type, msg.text, msg.timestamp));
+            history.forEach(msg => appendMessageDOM(msg));
+            emitReadReceipts(targetUid);
         };
 
-        const closeChat = () => {
-            currentTargetUid = null; currentTargetName = null; targetPublicKeyStr = null;
-            document.getElementById('chat-view').classList.add('hidden');
-            document.getElementById('main-view').classList.remove('hidden');
-            renderUserList();
-        };
+        const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('main-view').classList.remove('hidden'); renderUserList(); };
 
         const clearChat = () => {
-            if (!confirm(`确定要彻底清空与 ${currentTargetName} 的所有本地聊天记录吗？此操作不可逆！`)) return;
+            if (!confirm('彻底清空所有本地聊天记录？')) return;
             const tx = db.transaction('messages', 'readwrite');
             const index = tx.objectStore('messages').index('contact');
             const req = index.openCursor(IDBKeyRange.only(currentTargetUid));
             req.onsuccess = e => {
                 const cursor = e.target.result;
-                if (cursor) {
-                    cursor.delete();
-                    cursor.continue();
-                } else {
-                    document.getElementById('chat-box').innerHTML = '<div class="sys-msg">记录已清空</div>';
-                }
+                if (cursor) { cursor.delete(); cursor.continue(); } 
+                else { document.getElementById('chat-box').innerHTML = '<div class="sys-msg">记录已清空</div>'; }
             };
         };
 
-        const escapeHTML = str => str.replace(/[&<>'"]/g, tag => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-        }[tag] || tag));
+        const escapeHTML = str => str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+        const formatTime = (ts) => { const d = new Date(ts); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
 
-        const formatTime = (ts) => {
-            const d = new Date(ts);
-            return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-        };
-
-        const sendMessage = async () => {
-            const input = document.getElementById('msg-input');
-            const btn = document.getElementById('send-btn');
-            if (input.disabled || btn.disabled) return;
-            
-            const text = input.value.trim();
-            if(!text || !currentTargetUid) return;
-            input.value = '';
-            
-            const ts = Date.now();
-            appendMessage('me', text, ts);
-            await storeMessage(currentTargetUid, 'me', text, ts);
-            
-            const cipher = await encryptText(text, targetPublicKeyStr);
-            socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: cipher });
-        };
-
-        const appendMessage = (type, text, ts) => {
+        const appendMessageDOM = (msgObj) => {
             const box = document.getElementById('chat-box');
-            if (type === 'sys') {
-                box.innerHTML += `<div class="sys-msg">${text}</div>`;
-            } else {
-                const safe = escapeHTML(text);
-                const timeStr = ts ? formatTime(ts) : '';
-                box.innerHTML += `
-                    <div class="msg-row ${type}">
-                        <div class="msg-bubble">${safe}</div>
-                        <div class="msg-time">${timeStr}</div>
-                    </div>`;
+            let contentHtml = '';
+            if (msgObj.dataType === 'text') { contentHtml = escapeHTML(msgObj.content); }
+            else if (msgObj.dataType === 'image') { contentHtml = `<div class="media-content"><img src="${msgObj.content}"></div>`; }
+            else { contentHtml = `<a href="${msgObj.content}" download="${escapeHTML(msgObj.name || 'file')}" style="color:white; text-decoration:underline;">📁 下载文件: ${escapeHTML(msgObj.name || 'file')}</a>`; }
+            
+            let tickHtml = '';
+            if (msgObj.type === 'me') {
+                let tickText = '✓', tickClass = 'tick-sent';
+                if (msgObj.status === 1) { tickText = '✓✓'; tickClass = 'tick-delivered'; }
+                else if (msgObj.status === 2) { tickText = '✓✓'; tickClass = 'tick-read'; }
+                tickHtml = `<span id="tick-${msgObj.msgId}" class="${tickClass}" style="margin-left:5px;">${tickText}</span>`;
             }
+
+            box.innerHTML += `
+                <div class="msg-row ${msgObj.type}">
+                    <div class="msg-bubble">${contentHtml}</div>
+                    <div class="msg-time">${formatTime(msgObj.timestamp)}${tickHtml}</div>
+                </div>`;
             box.scrollTop = box.scrollHeight;
+        };
+
+        const sendPayload = async (dataType, contentStr, fileName) => {
+            if (!currentTargetUid || document.getElementById('send-btn').disabled) return;
+            const msgId = generateUUID();
+            const ts = Date.now();
+            const payloadObj = { id: msgId, type: dataType, content: contentStr, name: fileName };
+            const jsonStr = JSON.stringify(payloadObj);
+            
+            const msgObj = { msgId: msgId, contact: currentTargetUid, type: 'me', content: contentStr, dataType: dataType, name: fileName, timestamp: ts, status: 0 };
+            await storeMessage(msgObj);
+            appendMessageDOM(msgObj);
+            
+            try {
+                const cipher = await encryptData(jsonStr, targetPublicKeyStr);
+                socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: cipher });
+            } catch(e) { alert('加密或发送失败，文件可能过大'); }
+        };
+
+        const sendMessage = () => {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if(!text) return;
+            input.value = '';
+            sendPayload('text', text, null);
+        };
+
+        const handleFileUpload = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) return alert('为了防止加密导致内存崩溃，限制文件最大 5MB');
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64Data = e.target.result;
+                const type = file.type.startsWith('image/') ? 'image' : 'file';
+                await sendPayload(type, base64Data, file.name);
+                document.getElementById('file-upload').value = '';
+            };
+            reader.readAsDataURL(file);
+        };
+
+        const startCall = async () => {
+            if (!currentTargetUid) return;
+            isCalling = true; activeCallTarget = currentTargetUid;
+            document.getElementById('webrtc-view').classList.remove('hidden');
+            document.getElementById('call-controls').classList.remove('hidden');
+            document.getElementById('incoming-controls').classList.add('hidden');
+            document.getElementById('call-status').innerText = '正在等待对方接听...';
+            
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('local-video').srcObject = localStream;
+                peerConnection = new RTCPeerConnection(stunServers);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                peerConnection.onicecandidate = e => { if (e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'ice', candidate: e.candidate }); };
+                peerConnection.ontrack = e => { document.getElementById('remote-video').srcObject = e.streams[0]; document.getElementById('call-status').innerText = '通话中'; };
+                
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'offer', sdp: offer });
+            } catch(e) { alert('无法获取摄像头/麦克风权限'); endCallLocal(); }
+        };
+
+        const acceptCall = async () => {
+            isCalling = true;
+            document.getElementById('incoming-controls').classList.add('hidden');
+            document.getElementById('call-controls').classList.remove('hidden');
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('local-video').srcObject = localStream;
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: answer });
+            } catch(e) { alert('无法获取摄像头/麦克风权限'); endCall(); }
+        };
+
+        const endCallLocal = () => {
+            isCalling = false; activeCallTarget = null;
+            if (peerConnection) { peerConnection.close(); peerConnection = null; }
+            if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+            document.getElementById('webrtc-view').classList.add('hidden');
+            document.getElementById('local-video').srcObject = null;
+            document.getElementById('remote-video').srcObject = null;
+        };
+
+        const endCall = () => {
+            if (activeCallTarget) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'end' });
+            endCallLocal();
         };
 
         const exportData = async () => {
             const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').getAll(); req.onsuccess = () => r(req.result); });
             const msgs = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
             const contacts = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').getAll(); req.onsuccess = () => r(req.result); });
-            
-            const exportKeys = await Promise.all(keys.map(async k => {
-                const priv = await window.crypto.subtle.exportKey("jwk", k.privateKey);
-                const pub = await window.crypto.subtle.exportKey("jwk", k.publicKey);
-                return { uid: k.uid, nickname: k.nickname, privateKey: priv, publicKey: pub };
-            }));
-
-            const blob = new Blob([JSON.stringify({ keys: exportKeys, msgs, contacts })], { type: 'application/json' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `backup_${Date.now()}.json`;
-            a.click();
+            const blob = new Blob([JSON.stringify({ keys, msgs, contacts })], { type: 'application/json' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `backup_${Date.now()}.json`; a.click();
         };
 
         const importData = (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
+            const file = event.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onload = async e => {
                 try {
                     const data = JSON.parse(e.target.result);
                     const tx = db.transaction(['keys', 'messages', 'contacts'], 'readwrite');
-                    
-                    for (const k of data.keys) {
-                        const priv = await window.crypto.subtle.importKey("jwk", k.privateKey, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-                        const pub = await window.crypto.subtle.importKey("jwk", k.publicKey, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
-                        tx.objectStore('keys').put({ uid: k.uid, nickname: k.nickname, privateKey: priv, publicKey: pub });
-                    }
-                    if(data.msgs) data.msgs.forEach(m => { delete m.id; tx.objectStore('messages').add(m); });
+                    if(data.keys) data.keys.forEach(k => tx.objectStore('keys').put(k));
+                    if(data.msgs) data.msgs.forEach(m => tx.objectStore('messages').put(m));
                     if(data.contacts) data.contacts.forEach(c => tx.objectStore('contacts').put(c));
-                    
-                    tx.oncomplete = () => { alert('恢复成功！请刷新页面。'); location.reload(); };
-                } catch(err) { alert('恢复失败，请检查备份文件是否正确'); }
+                    tx.oncomplete = () => { alert('恢复成功！'); location.reload(); };
+                } catch(err) { alert('恢复失败'); }
             };
             reader.readAsText(file);
         };
 
-        const checkSession = async () => {
-            const savedUid = sessionStorage.getItem('chat_uid');
-            const savedNick = sessionStorage.getItem('chat_nick');
-            const savedToken = sessionStorage.getItem('chat_token');
-            if (savedUid && savedToken && savedNick) {
-                const priv = await getPrivateKey(savedUid);
-                if (priv) {
-                    currentUid = savedUid;
-                    currentNickname = savedNick;
-                    currentToken = savedToken;
-                    document.getElementById('auth-view').classList.add('hidden');
-                    document.getElementById('main-view').classList.remove('hidden');
-                    document.getElementById('my-name').innerText = currentNickname;
-                    document.getElementById('my-uid').innerText = `UID: ${currentUid}`;
-                    initSocket();
-                    renderUserList();
-                }
-            }
-        };
-
         window.onload = async () => {
             await initDB();
-            await checkSession();
+            const savedUid = sessionStorage.getItem('chat_uid'); const savedToken = sessionStorage.getItem('chat_token');
+            if (savedUid && savedToken) {
+                const priv = await getPrivateKey(savedUid);
+                if (priv) {
+                    currentUid = savedUid; currentNickname = sessionStorage.getItem('chat_nick'); currentToken = savedToken;
+                    document.getElementById('auth-view').classList.add('hidden'); document.getElementById('main-view').classList.remove('hidden');
+                    document.getElementById('my-name').innerText = currentNickname; document.getElementById('my-uid').innerText = `UID: ${currentUid}`;
+                    initSocket(); renderUserList();
+                }
+            }
         };
     </script>
 </body>
