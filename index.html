@@ -7,12 +7,13 @@
     <title>隐语</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <style>
-        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444;}
+        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --warning: #f59e0b;}
         body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         .hidden { display: none !important; }
         input, button { width: 100%; box-sizing: border-box; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #475569; outline: none; font-size: 16px; }
         input { background: #334155; color: white; }
-        button { background: var(--primary); color: white; font-weight: bold; cursor: pointer; border: none; }
+        button { background: var(--primary); color: white; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
+        button:active { opacity: 0.8; transform: scale(0.98); }
         button.secondary { background: #334155; }
         button.danger { background: var(--danger); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -20,7 +21,7 @@
         .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; }
         .panel { background: var(--panel); padding: 20px; border-radius: 12px; }
         .flex { display: flex; gap: 10px; }
-        .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; position: relative; }
         #chat-view { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: fixed; inset: 0; z-index: 10; }
         #chat-header { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
         #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
@@ -37,9 +38,13 @@
         #chat-input-area button { width: 80px; margin: 0; }
         .status-badge { font-size: 14px; font-weight: bold; margin-left: 8px; }
         .fingerprint { font-size: 11px; color: #64748b; font-family: monospace; display: block; margin-top: 4px; }
+        .unread-badge { background: var(--danger); color: white; font-size: 12px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 15px; top: 15px; font-weight: bold; }
+        #network-bar { background: var(--danger); color: white; text-align: center; font-size: 12px; padding: 5px; position: fixed; top: 0; width: 100%; z-index: 100; transition: 0.3s; }
     </style>
 </head>
 <body>
+
+    <div id="network-bar" class="hidden">⚠ 网络连接已断开，正在尝试重新连接...</div>
 
     <div id="auth-view" class="container">
         <div class="panel">
@@ -70,7 +75,7 @@
                 <input type="text" id="add-contact-input" placeholder="输入精准 8位 UID 添加" style="margin:0;" maxlength="8">
                 <button class="success" style="width:100px; margin:0; background:var(--success)" onclick="addContact()">➕ 添加</button>
             </div>
-            <div id="user-list" style="max-height: 400px; overflow-y: auto;"></div>
+            <div id="user-list" style="max-height: 400px; overflow-y: auto; padding-right: 5px;"></div>
         </div>
     </div>
 
@@ -105,6 +110,7 @@
         
         let socket = null;
         let onlineStatusMap = {};
+        let unreadCountMap = {};
 
         const initDB = () => {
             return new Promise((resolve, reject) => {
@@ -191,6 +197,14 @@
                 tx.oncomplete = resolve;
             });
         };
+
+        const removeLocalContact = (uid) => {
+            return new Promise((resolve) => {
+                const tx = db.transaction('contacts', 'readwrite');
+                tx.objectStore('contacts').delete(uid);
+                tx.oncomplete = resolve;
+            });
+        }
 
         const encryptText = async (text, pubKeyStr) => {
             const binaryDer = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
@@ -304,6 +318,12 @@
             renderUserList();
         };
 
+        const deleteContact = async (uid, name) => {
+            if (!confirm(`确定要从列表中移除好友 ${name} 吗？`)) return;
+            await removeLocalContact(uid);
+            renderUserList();
+        };
+
         const renderUserList = async () => {
             const list = document.getElementById('user-list');
             list.innerHTML = '';
@@ -317,39 +337,41 @@
             for (const contact of contacts) {
                 const isOnline = onlineStatusMap[contact.uid] === true;
                 const fingerprint = await getFingerprint(contact.publicKey);
+                const unread = unreadCountMap[contact.uid] || 0;
+                
                 const div = document.createElement('div');
                 div.className = 'list-item';
                 const statusColor = isOnline ? 'var(--success)' : 'var(--danger)';
                 const statusText = isOnline ? '[在线]' : '[离线]';
                 
+                let unreadHtml = '';
+                if (unread > 0) {
+                    unreadHtml = `<div class="unread-badge">${unread > 99 ? '99+' : unread}</div>`;
+                }
+                
                 div.innerHTML = `
-                    <div>
+                    <div style="flex:1;">
                         <span style="font-weight:bold; color:white;">${contact.nickname}</span>
                         <span style="font-size:12px; color:#94a3b8; margin-left:5px;">(UID: ${contact.uid})</span>
                         <span class="status-badge" style="color:${statusColor}">${statusText}</span>
                         <span class="fingerprint">指纹: ${fingerprint}</span>
                     </div>
-                    <button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="openChat('${contact.uid}', '${contact.nickname}', '${contact.publicKey}', '${fingerprint}')">发消息</button>
+                    ${unreadHtml}
+                    <div class="flex" style="flex-direction: column; gap: 5px;">
+                        <button class="secondary" style="width:auto; padding:5px 15px; margin:0; font-size:12px;" onclick="openChat('${contact.uid}', '${contact.nickname}', '${contact.publicKey}', '${fingerprint}')">发消息</button>
+                        <button class="danger" style="width:auto; padding:5px 15px; margin:0; font-size:12px;" onclick="deleteContact('${contact.uid}', '${contact.nickname}')">移除</button>
+                    </div>
                 `;
                 list.appendChild(div);
             }
         };
 
         const updateChatInputState = (isOnline) => {
-            const input = document.getElementById('msg-input');
-            const btn = document.getElementById('send-btn');
             const statusEl = document.getElementById('chat-target-status');
-            
             if (isOnline) {
-                input.disabled = false;
-                btn.disabled = false;
-                input.placeholder = "输入消息...";
                 statusEl.innerText = "[在线]";
                 statusEl.style.color = "var(--success)";
             } else {
-                input.disabled = true;
-                btn.disabled = true;
-                input.placeholder = "好友已离线，由于无服务器存储，当前无法发送消息";
                 statusEl.innerText = "[离线]";
                 statusEl.style.color = "var(--danger)";
             }
@@ -357,7 +379,15 @@
 
         const initSocket = () => {
             socket = io();
-            socket.on('connect', () => socket.emit('register_socket', { uid: currentUid, token: currentToken }));
+            
+            socket.on('connect', () => {
+                document.getElementById('network-bar').classList.add('hidden');
+                socket.emit('register_socket', { uid: currentUid, token: currentToken });
+            });
+
+            socket.on('disconnect', () => {
+                document.getElementById('network-bar').classList.remove('hidden');
+            });
             
             socket.on('auth_failed', (data) => {
                 sessionStorage.removeItem('chat_uid');
@@ -385,8 +415,33 @@
                     const privKey = await getPrivateKey(currentUid);
                     const plain = await decryptText(data.payload, privKey);
                     await storeMessage(data.from, 'other', plain, data.timestamp);
-                    if (currentTargetUid === data.from) appendMessage('other', plain, data.timestamp);
+                    
+                    if (currentTargetUid === data.from) {
+                        appendMessage('other', plain, data.timestamp);
+                    } else {
+                        unreadCountMap[data.from] = (unreadCountMap[data.from] || 0) + 1;
+                        renderUserList();
+                    }
                 } catch(e) {}
+            });
+            
+            socket.on('offline_sync', async (messages) => {
+                if(!messages || messages.length === 0) return;
+                const privKey = await getPrivateKey(currentUid);
+                let needRender = false;
+                for (const msg of messages) {
+                    try {
+                        const plain = await decryptText(msg.payload, privKey);
+                        await storeMessage(msg.from, 'other', plain, msg.timestamp);
+                        if (currentTargetUid === msg.from) {
+                            appendMessage('other', plain, msg.timestamp);
+                        } else {
+                            unreadCountMap[msg.from] = (unreadCountMap[msg.from] || 0) + 1;
+                            needRender = true;
+                        }
+                    } catch(e) {}
+                }
+                if (needRender) renderUserList();
             });
             
             socket.on('message_error', (data) => {
@@ -398,6 +453,9 @@
             currentTargetUid = targetUid;
             currentTargetName = targetName;
             targetPublicKeyStr = targetPubKey;
+            
+            unreadCountMap[targetUid] = 0;
+            renderUserList();
             
             document.getElementById('main-view').classList.add('hidden');
             document.getElementById('chat-view').classList.remove('hidden');
@@ -416,6 +474,7 @@
             currentTargetUid = null; currentTargetName = null; targetPublicKeyStr = null;
             document.getElementById('chat-view').classList.add('hidden');
             document.getElementById('main-view').classList.remove('hidden');
+            renderUserList();
         };
 
         const clearChat = () => {
