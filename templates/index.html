@@ -512,24 +512,34 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
+        // 核心修复1：在线状态硬拦截与纯净 JSON 序列化
         const startCall = async () => {
+            // 如果对方掉线或息屏，直接拦截拨打，不让你干等
+            if(!onlineUsers.has(currentTargetUid)) return alert("对方当前不在线或已锁屏，无法接通！");
+            
             try {
                 localStream = await getMicrophoneAccess(); 
                 document.getElementById('webrtc-view').classList.remove('hidden'); 
-                document.getElementById('call-status').innerText = "正在等待对方接听...";
+                document.getElementById('call-status').innerText = "正在呼叫，等待接听...";
                 document.getElementById('call-target-display-name').innerText = currentTargetName;
 
                 peerConnection = new RTCPeerConnection(STUN);
                 iceCandidateQueue = []; 
                 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
-                peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: e.candidate });
+                peerConnection.onicecandidate = e => {
+                    if(e.candidate) {
+                        // 强制解构对象，防止被 Socket.io 吞噬
+                        socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
+                    }
+                };
                 peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                 
                 const offer = await peerConnection.createOffer(); 
                 await peerConnection.setLocalDescription(offer);
-                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: offer });
-            } catch(e) { console.log(e); }
+                // 强制剥离出纯文本发送，彻底根除静默崩溃
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
+            } catch(e) { console.log("拨打被安全阻断"); }
         };
         
         const handleSignal = async (d) => {
@@ -538,43 +548,62 @@
                     if(!document.getElementById('webrtc-view').classList.contains('hidden')) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
                     
                     const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
-                    document.getElementById('call-target-display-name').innerText = contact ? contact.nick : d.from;
-                    document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请您进行语音通话...";
+                    const callerName = contact ? contact.nick : d.from;
+                    
+                    // 核心修复2：对方收到请求时，触发系统级 Push 通知，防止看不到
+                    showPushNotification("来电提醒", `${callerName} 邀请您语音通话`);
+                    document.getElementById('call-target-display-name').innerText = callerName;
+                    document.getElementById('webrtc-view').classList.remove('hidden'); 
+                    document.getElementById('call-tools').classList.add('hidden'); 
+                    document.getElementById('incoming-tools').classList.remove('hidden'); 
+                    document.getElementById('call-status').innerText = "邀请您进行语音通话...";
                     
                     peerConnection = new RTCPeerConnection(STUN);
-                    iceCandidateQueue = [];
-                    peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: e.candidate });
+                    peerConnection.onicecandidate = e => {
+                        if(e.candidate) {
+                            socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
+                        }
+                    };
                     peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                     
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     activeCallTarget = d.from;
-                    while(iceCandidateQueue.length > 0) { await peerConnection.addIceCandidate(iceCandidateQueue.shift()).catch(e=>{}); }
+                    
+                    while(iceCandidateQueue.length > 0) { 
+                        peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); 
+                    }
                 } else if(d.type === 'answer') { 
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     document.getElementById('call-status').innerText = "通话中"; 
-                    while(iceCandidateQueue.length > 0) { await peerConnection.addIceCandidate(iceCandidateQueue.shift()).catch(e=>{}); }
+                    while(iceCandidateQueue.length > 0) { 
+                        peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); 
+                    }
                 } else if(d.type === 'ice') { 
                     if (peerConnection && peerConnection.remoteDescription) {
                         peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{});
                     } else {
-                        iceCandidateQueue.push(new RTCIceCandidate(d.ice)); 
+                        iceCandidateQueue.push(d.ice); 
                     }
                 } else if(d.type === 'busy') { 
                     alert("对方正忙..."); endCallLocal(); 
                 } else if(d.type === 'reject') { 
-                    alert("对方无法接听，或已拒绝"); endCallLocal(); 
+                    alert("对方已拒接或无法获取麦克风"); endCallLocal(); 
                 } else if(d.type === 'end') { 
                     endCallLocal(); 
                 }
-            } catch(e) { console.log(e); }
+            } catch(e) { console.log('信令处理异常'); }
         };
         
         const acceptCall = async () => {
             try {
                 localStream = await getMicrophoneAccess(); 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
-                const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: ans });
-                document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
+                const ans = await peerConnection.createAnswer(); 
+                await peerConnection.setLocalDescription(ans); 
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: { type: ans.type, sdp: ans.sdp } });
+                document.getElementById('incoming-tools').classList.add('hidden'); 
+                document.getElementById('call-tools').classList.remove('hidden'); 
+                document.getElementById('call-status').innerText = "通话中";
             } catch(e) { 
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' });
                 endCallLocal(); 
@@ -582,7 +611,7 @@
         };
         
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
-        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; };
+        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
 
         const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('保存成功'); };
 
