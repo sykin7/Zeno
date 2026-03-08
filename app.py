@@ -9,7 +9,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
-socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760)
+# 优化：缩短心跳间隔(ping_interval)和超时时间，强制手机端保持长连接活跃
+socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760, ping_timeout=10, ping_interval=5)
 
 DB_PATH = os.path.join('data', 'users.db')
 connected_users = {}
@@ -45,23 +46,14 @@ def register():
     if now - auth_limits.get(ip, 0) < 2.0:
         return jsonify({'error': 'Limit'}), 429
     auth_limits[ip] = now
-
     data = request.json
-    nickname = data.get('nickname')
-    password = data.get('password')
-    public_key = data.get('public_key')
-    
+    nickname, password, public_key = data.get('nickname'), data.get('password'), data.get('public_key')
     if not nickname or not password or not public_key:
         return jsonify({'error': 'Missing'}), 400
-        
     conn = get_db()
-    
     while True:
         uid = str(random.randint(10000000, 99999999))
-        existing = conn.execute('SELECT 1 FROM users WHERE uid = ?', (uid,)).fetchone()
-        if not existing:
-            break
-            
+        if not conn.execute('SELECT 1 FROM users WHERE uid = ?', (uid,)).fetchone(): break
     pwd_hash = generate_password_hash(password)
     conn.execute('INSERT INTO users (uid, nickname, password_hash, public_key) VALUES (?, ?, ?, ?)', (uid, nickname, pwd_hash, public_key))
     conn.commit()
@@ -75,15 +67,11 @@ def login():
     if now - auth_limits.get(ip, 0) < 2.0:
         return jsonify({'error': 'Limit'}), 429
     auth_limits[ip] = now
-
     data = request.json
-    uid = data.get('uid')
-    password = data.get('password')
-    
+    uid, password = data.get('uid'), data.get('password')
     conn = get_db()
     user = conn.execute('SELECT nickname, password_hash, public_key FROM users WHERE uid = ?', (uid,)).fetchone()
     conn.close()
-    
     if user and check_password_hash(user['password_hash'], password):
         token = secrets.token_hex(16)
         auth_tokens[uid] = token
@@ -97,35 +85,45 @@ def add_contact():
     conn = get_db()
     user = conn.execute('SELECT nickname, public_key FROM users WHERE uid = ?', (target_uid,)).fetchone()
     conn.close()
-    if user:
-        return jsonify({'status': 'ok', 'uid': target_uid, 'nickname': user['nickname'], 'public_key': user['public_key']})
+    if user: return jsonify({'status': 'ok', 'uid': target_uid, 'nickname': user['nickname'], 'public_key': user['public_key']})
     return jsonify({'error': 'Not found'}), 404
 
-@socketio.on('connect')
-def handle_connect():
-    pass
+@app.route('/api/contacts/sync', methods=['POST'])
+def sync_contacts():
+    uids = request.json.get('uids', [])
+    if not uids: return jsonify([])
+    conn = get_db()
+    placeholders = ','.join('?' * len(uids))
+    users = conn.execute(f'SELECT uid, nickname, public_key FROM users WHERE uid IN ({placeholders})', uids).fetchall()
+    conn.close()
+    return jsonify([{'uid': u['uid'], 'nickname': u['nickname'], 'public_key': u['public_key']} for u in users])
+
+@app.route('/api/profile/update', methods=['POST'])
+def update_profile():
+    data = request.json
+    uid, token, nickname = data.get('uid'), data.get('token'), data.get('nickname')
+    if not uid or auth_tokens.get(uid) != token: return jsonify({'error': 'Unauthorized'}), 403
+    conn = get_db()
+    conn.execute('UPDATE users SET nickname = ? WHERE uid = ?', (nickname, uid))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok'})
 
 @socketio.on('register_socket')
 def handle_register(data):
-    uid = data.get('uid')
-    token = data.get('token')
-    
+    uid, token = data.get('uid'), data.get('token')
     if uid and auth_tokens.get(uid) == token:
         connected_users[uid] = request.sid
         emit('online_users', {'users': list(connected_users.keys())}, to=request.sid)
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
-        
         conn = get_db()
         offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
         if offline_msgs:
-            msgs_data = [{'from': m['from_uid'], 'payload': m['payload'], 'timestamp': m['timestamp']} for m in offline_msgs]
-            emit('offline_sync', msgs_data, to=request.sid)
+            emit('offline_sync', [{'from': m['from_uid'], 'payload': m['payload'], 'timestamp': m['timestamp']} for m in offline_msgs], to=request.sid)
             conn.execute('DELETE FROM offline_msgs WHERE to_uid = ?', (uid,))
             conn.commit()
         conn.close()
-    else:
-        emit('auth_failed', {'error': 'Session expired'}, to=request.sid)
-        disconnect()
+    else: disconnect()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -136,55 +134,31 @@ def handle_disconnect():
 
 @socketio.on('send_message')
 def handle_message(data):
-    sender_uid = data.get('from')
-    token = data.get('token')
-    target_uid = data.get('to')
-    payload = data.get('payload')
-    
-    if not sender_uid or auth_tokens.get(sender_uid) != token:
-        return
-        
-    now = time.time()
-    if now - message_limits.get(sender_uid, 0) < 0.2:
-        return
-    message_limits[sender_uid] = now
-    
-    msg_timestamp = now * 1000
-
+    sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
+    if not sender_uid or auth_tokens.get(sender_uid) != token: return
+    now_ms = time.time() * 1000
     if target_uid in connected_users:
-        target_sid = connected_users[target_uid]
-        emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': msg_timestamp}, room=target_sid)
+        emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
     else:
         conn = get_db()
-        conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, msg_timestamp))
+        conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, now_ms))
         conn.commit()
         conn.close()
 
 @socketio.on('msg_ack')
-def handle_msg_ack(data):
-    sender_uid = data.get('from')
-    token = data.get('token')
-    target_uid = data.get('to')
-    msg_id = data.get('msgId')
-    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
-        emit('msg_ack', {'msgId': msg_id, 'from': sender_uid}, room=connected_users[target_uid])
+def handle_ack(data):
+    if auth_tokens.get(data.get('from')) == data.get('token') and data.get('to') in connected_users:
+        emit('msg_ack', {'msgId': data.get('msgId'), 'from': data.get('from')}, room=connected_users[data.get('to')])
 
 @socketio.on('msg_read')
-def handle_msg_read(data):
-    sender_uid = data.get('from')
-    token = data.get('token')
-    target_uid = data.get('to')
-    msg_id = data.get('msgId')
-    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
-        emit('msg_read', {'msgId': msg_id, 'from': sender_uid}, room=connected_users[target_uid])
+def handle_read(data):
+    if auth_tokens.get(data.get('from')) == data.get('token') and data.get('to') in connected_users:
+        emit('msg_read', {'msgId': data.get('msgId'), 'from': data.get('from')}, room=connected_users[data.get('to')])
 
 @socketio.on('webrtc_signal')
 def handle_webrtc(data):
-    sender_uid = data.get('from')
-    token = data.get('token')
-    target_uid = data.get('to')
-    if sender_uid and auth_tokens.get(sender_uid) == token and target_uid in connected_users:
-        emit('webrtc_signal', data, room=connected_users[target_uid])
+    if auth_tokens.get(data.get('from')) == data.get('token') and data.get('to') in connected_users:
+        emit('webrtc_signal', data, room=connected_users[data.get('to')])
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=8787)
