@@ -9,7 +9,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
-# 优化：缩短心跳间隔(ping_interval)和超时时间，强制手机端保持长连接活跃
 socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760, ping_timeout=10, ping_interval=5)
 
 DB_PATH = os.path.join('data', 'users.db')
@@ -30,6 +29,8 @@ def init_db():
     conn.execute('PRAGMA auto_vacuum = FULL;')
     conn.execute('CREATE TABLE IF NOT EXISTS users (uid TEXT PRIMARY KEY, nickname TEXT, password_hash TEXT, public_key TEXT)')
     conn.execute('CREATE TABLE IF NOT EXISTS offline_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)')
+    # 新增好友请求表
+    conn.execute('CREATE TABLE IF NOT EXISTS friend_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)')
     conn.commit()
     conn.close()
 
@@ -78,25 +79,16 @@ def login():
         return jsonify({'status': 'ok', 'uid': uid, 'nickname': user['nickname'], 'public_key': user['public_key'], 'token': token})
     return jsonify({'error': 'Auth failed'}), 401
 
-@app.route('/api/contact', methods=['POST'])
-def add_contact():
+# 重构：仅搜寻用户，不直接添加
+@app.route('/api/search_user', methods=['POST'])
+def search_user():
     data = request.json
     target_uid = data.get('uid')
     conn = get_db()
     user = conn.execute('SELECT nickname, public_key FROM users WHERE uid = ?', (target_uid,)).fetchone()
     conn.close()
     if user: return jsonify({'status': 'ok', 'uid': target_uid, 'nickname': user['nickname'], 'public_key': user['public_key']})
-    return jsonify({'error': 'Not found'}), 404
-
-@app.route('/api/contacts/sync', methods=['POST'])
-def sync_contacts():
-    uids = request.json.get('uids', [])
-    if not uids: return jsonify([])
-    conn = get_db()
-    placeholders = ','.join('?' * len(uids))
-    users = conn.execute(f'SELECT uid, nickname, public_key FROM users WHERE uid IN ({placeholders})', uids).fetchall()
-    conn.close()
-    return jsonify([{'uid': u['uid'], 'nickname': u['nickname'], 'public_key': u['public_key']} for u in users])
+    return jsonify({'error': '用户不存在'}), 404
 
 @app.route('/api/profile/update', methods=['POST'])
 def update_profile():
@@ -144,6 +136,44 @@ def handle_message(data):
         conn.execute('INSERT INTO offline_msgs (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, now_ms))
         conn.commit()
         conn.close()
+
+# 新增：处理好友请求的发送、拉取与销毁
+@socketio.on('send_friend_request')
+def handle_send_friend_request(data):
+    sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
+    if not sender_uid or auth_tokens.get(sender_uid) != token: return
+    conn = get_db()
+    # 防重发拦截
+    existing = conn.execute('SELECT 1 FROM friend_requests WHERE to_uid = ? AND from_uid = ?', (target_uid, sender_uid)).fetchone()
+    if not existing:
+        conn.execute('INSERT INTO friend_requests (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, time.time()))
+        conn.commit()
+    conn.close()
+    if target_uid in connected_users:
+        emit('new_friend_request', {'from': sender_uid}, room=connected_users[target_uid])
+
+@socketio.on('fetch_friend_requests')
+def handle_fetch_requests(data):
+    uid, token = data.get('uid'), data.get('token')
+    if not uid or auth_tokens.get(uid) != token: return
+    conn = get_db()
+    # 七天过期自动清理策略 (7 * 24 * 3600 = 604800)
+    expire_time = time.time() - 604800
+    conn.execute('DELETE FROM friend_requests WHERE timestamp < ?', (expire_time,))
+    conn.commit()
+    
+    reqs = conn.execute('SELECT id, from_uid, payload, timestamp FROM friend_requests WHERE to_uid = ? ORDER BY timestamp DESC', (uid,)).fetchall()
+    conn.close()
+    emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': r['timestamp'] * 1000} for r in reqs], to=request.sid)
+
+@socketio.on('resolve_friend_request')
+def handle_resolve_request(data):
+    uid, token, req_id = data.get('uid'), data.get('token'), data.get('req_id')
+    if not uid or auth_tokens.get(uid) != token: return
+    conn = get_db()
+    conn.execute('DELETE FROM friend_requests WHERE id = ? AND to_uid = ?', (req_id, uid))
+    conn.commit()
+    conn.close()
 
 @socketio.on('msg_ack')
 def handle_ack(data):
