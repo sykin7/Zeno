@@ -156,7 +156,7 @@
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
-            <button class="secondary voice-btn" id="voice-btn" onpointerdown="startRecording(event)" onpointerup="stopRecording(event)" onpointercancel="stopRecording(event)">🎤</button>
+            <button class="secondary voice-btn" id="voice-btn" onmousedown="startRecording(event)" onmouseup="stopRecording(event)" onmouseleave="stopRecording(event)" ontouchstart="startRecording(event)" ontouchend="stopRecording(event)" ontouchcancel="stopRecording(event)" oncontextmenu="return false;">🎤</button>
             <button class="secondary clip-btn" onclick="document.getElementById('file-upload').click()">📎</button>
             <input type="file" id="file-upload" class="hidden" accept="*/*" onchange="handleFileUpload(event)">
             <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
@@ -174,21 +174,12 @@
     </div>
 
     <script>
-        // 核心修复1：补全漏掉的全局变量，防止对象丢失
         let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
         let isRecording = false; 
         let activeCallTarget = null;
-        let iceCandidateQueue = []; // 核心修复2：ICE 候选队列，解决时序抢跑崩溃
-        
-        // 核心修复3：启用国内三网极速穿透节点矩阵，弃用谷歌
-        const STUN = { 
-            iceServers: [
-                { urls: 'stun:stun.qq.com:3478' },
-                { urls: 'stun:stun.miwifi.com:3478' },
-                { urls: 'stun:stun.aliyun.com:3478' }
-            ] 
-        };
+        let iceCandidateQueue = []; 
+        const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }] };
 
         const safeBuf2B64 = (buffer) => {
             const bytes = new Uint8Array(buffer); let binary = '';
@@ -280,15 +271,10 @@
             if(res.error) return alert('验证失败');
             const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(u); req.onsuccess = () => r(req.result); });
             if(!keys) return alert("本地缺失解密私钥，如果您更换了设备，请先导入备份文件。");
-            
             currentUid = u; currentNickname = res.nickname; currentToken = res.token;
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
-            
-            document.getElementById('profile-uid-show').innerText = u;
-            document.getElementById('profile-name-show').innerText = currentNickname;
-            document.getElementById('settings-nickname').value = currentNickname;
-            
+            document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
@@ -494,17 +480,31 @@
         };
         
         const startRecording = async (e) => { 
-            e.preventDefault(); if(isRecording) return; isRecording = true;
+            if(e && e.type === 'touchstart') e.preventDefault();
+            if(isRecording) return; 
+            isRecording = true;
+            document.getElementById('voice-btn').classList.add('recording');
             try { 
-                const s = await getMicrophoneAccess(); mediaRecorder = new MediaRecorder(s); audioChunks = []; 
+                const s = await getMicrophoneAccess(); 
+                if (!isRecording) { s.getTracks().forEach(t => t.stop()); return; }
+                mediaRecorder = new MediaRecorder(s); audioChunks = []; 
                 mediaRecorder.ondataavailable = e => audioChunks.push(e.data); 
                 mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; 
-                mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); 
-            } catch(e) { isRecording = false; } 
+                mediaRecorder.start(); 
+            } catch(err) { 
+                isRecording = false;
+                document.getElementById('voice-btn').classList.remove('recording');
+            } 
         };
         const stopRecording = (e) => { 
-            e.preventDefault(); if(mediaRecorder && mediaRecorder.state !== 'inactive') { mediaRecorder.stop(); } 
-            document.getElementById('voice-btn').classList.remove('recording'); isRecording = false; 
+            if(e && (e.type === 'touchend' || e.type === 'touchcancel')) e.preventDefault();
+            if(!isRecording) return; 
+            isRecording = false; 
+            document.getElementById('voice-btn').classList.remove('recording'); 
+            if(mediaRecorder && mediaRecorder.state !== 'inactive') { 
+                mediaRecorder.stop(); 
+                if(mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            } 
         };
         
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
@@ -512,23 +512,24 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        // 核心修复：完全重写的抗宕机 WebRTC 时序与错误回传引擎
         const startCall = async () => {
-            document.getElementById('webrtc-view').classList.remove('hidden'); 
-            document.getElementById('call-status').innerText = "正在等待对方接听...";
-            document.getElementById('call-target-display-name').innerText = currentTargetName;
             try {
                 localStream = await getMicrophoneAccess(); 
+                document.getElementById('webrtc-view').classList.remove('hidden'); 
+                document.getElementById('call-status').innerText = "正在等待对方接听...";
+                document.getElementById('call-target-display-name').innerText = currentTargetName;
+
                 peerConnection = new RTCPeerConnection(STUN);
-                iceCandidateQueue = []; // 初始化路由队列
+                iceCandidateQueue = []; 
                 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => e.candidate && socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: e.candidate });
                 peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                 
-                const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
+                const offer = await peerConnection.createOffer(); 
+                await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: offer });
-            } catch(e) { endCallLocal(); }
+            } catch(e) { console.log(e); }
         };
         
         const handleSignal = async (d) => {
@@ -538,7 +539,6 @@
                     
                     const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
                     document.getElementById('call-target-display-name').innerText = contact ? contact.nick : d.from;
-                    
                     document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请您进行语音通话...";
                     
                     peerConnection = new RTCPeerConnection(STUN);
@@ -548,21 +548,16 @@
                     
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     activeCallTarget = d.from;
-                    
-                    // 解锁被排队的路由信号
                     while(iceCandidateQueue.length > 0) { await peerConnection.addIceCandidate(iceCandidateQueue.shift()).catch(e=>{}); }
                 } else if(d.type === 'answer') { 
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     document.getElementById('call-status').innerText = "通话中"; 
-                    
-                    // 解锁被排队的路由信号
                     while(iceCandidateQueue.length > 0) { await peerConnection.addIceCandidate(iceCandidateQueue.shift()).catch(e=>{}); }
                 } else if(d.type === 'ice') { 
-                    // 防止路由抢跑引发崩溃的拦截器
                     if (peerConnection && peerConnection.remoteDescription) {
                         peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{});
                     } else {
-                        iceCandidateQueue.push(new RTCIceCandidate(d.ice)); // 暂存排队
+                        iceCandidateQueue.push(new RTCIceCandidate(d.ice)); 
                     }
                 } else if(d.type === 'busy') { 
                     alert("对方正忙..."); endCallLocal(); 
@@ -571,7 +566,7 @@
                 } else if(d.type === 'end') { 
                     endCallLocal(); 
                 }
-            } catch(e) { console.log('WebRTC Signal Error:', e); }
+            } catch(e) { console.log(e); }
         };
         
         const acceptCall = async () => {
@@ -581,7 +576,6 @@
                 const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: ans });
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
             } catch(e) { 
-                // 麦克风获取失败，立刻回传拒接信号防止死等
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' });
                 endCallLocal(); 
             }
