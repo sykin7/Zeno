@@ -7,10 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --border: #334155; --text-muted: #94a3b8; --nav-bg: #162032;}
-        /* 引入 100dvh 动态视口，完美适配手机浏览器地址栏的展开与收起 */
         body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; -webkit-font-smoothing: antialiased; }
         .hidden { display: none !important; }
-        /* 强制 16px 字体，这是 iOS Safari 不自动放大网页的硬性底线 */
         input, button { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); outline: none; font-size: 16px; transition: all 0.2s; }
         input { background: #0f172a; color: white; }
         input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
@@ -56,8 +54,11 @@
         #chat-input-area { padding: 10px 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(10px, env(safe-area-inset-bottom)); flex-shrink: 0;}
         #chat-input-area input { margin: 0; flex: 1; }
         #send-btn { width: auto; padding: 0 15px; margin: 0; height: 42px;}
-        .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; margin: 0; flex-shrink: 0;}
+        
+        /* 核心修复：彻底禁用系统对按钮的长按干预，根除双击闪现 */
+        .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; margin: 0; flex-shrink: 0; touch-action: none; -webkit-user-select: none; user-select: none;}
         .clip-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; margin: 0; flex-shrink: 0; background: var(--secondary); display: flex; align-items: center; justify-content: center;}
+        
         .recording { background: var(--danger) !important; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
@@ -117,7 +118,7 @@
             <div id="tab-requests" class="hidden">
                 <h2 style="margin-top:0;">添加好友</h2>
                 <div class="flex" style="margin-bottom: 25px;">
-                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID" maxlength="8" style="margin:0;">
+                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID 搜索" maxlength="8" style="margin:0;">
                     <button class="primary" style="width:90px; margin:0;" onclick="searchAndRequest()">搜索</button>
                 </div>
                 <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求 (7天自动销毁)</h4>
@@ -156,9 +157,9 @@
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
-            <button class="secondary voice-btn" id="voice-btn" onmousedown="startRecording()" onmouseup="stopRecording()" ontouchstart="startRecording()" ontouchend="stopRecording()">🎤</button>
+            <button class="secondary voice-btn" id="voice-btn" onpointerdown="startRecording(event)" onpointerup="stopRecording(event)" onpointercancel="stopRecording(event)">🎤</button>
             <button class="secondary clip-btn" onclick="document.getElementById('file-upload').click()">📎</button>
-            <input type="file" id="file-upload" class="hidden" onchange="handleFileUpload(event)">
+            <input type="file" id="file-upload" class="hidden" accept="*/*" onchange="handleFileUpload(event)">
             <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
             <button id="send-btn" onclick="sendMessage()">发送</button>
         </div>
@@ -176,11 +177,27 @@
     <script>
         let db, currentUid, currentNickname, currentToken, currentTargetUid, socket, peerConnection, localStream;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
+        let isRecording = false; // 全局锁，防止重复触发
         const STUN = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        // 终极麦克风获取与报错兼容引擎 (Polyfill & Error Handler)
+        // 核心修复一：绝对安全的 Buffer <-> Base64 转换器，防止发送图片时报 Call Stack 栈溢出崩溃
+        const safeBuf2B64 = (buffer) => {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i += 8192) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+            }
+            return btoa(binary);
+        };
+        const safeB642Buf = (b64) => {
+            const binary_string = atob(b64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); }
+            return bytes.buffer;
+        };
+
         const getMicrophoneAccess = async () => {
-            // 兼容非常老旧的安卓 Webview 引擎
             if (navigator.mediaDevices === undefined) navigator.mediaDevices = {};
             if (navigator.mediaDevices.getUserMedia === undefined) {
                 navigator.mediaDevices.getUserMedia = function(constraints) {
@@ -190,22 +207,14 @@
                 }
             }
             try {
-                // 强制只请求音频，杜绝摄像头相关报错
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 return stream;
             } catch (err) {
-                let errorMsg = "麦克风获取失败！\n原因：";
-                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    errorMsg += "您（或系统）拒绝了麦克风权限。\n请进入手机【设置】-【应用权限】中，将当前浏览器的麦克风权限设为“允许”。";
-                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                    errorMsg += "未检测到可用的麦克风硬件设备。";
-                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-                    errorMsg += "麦克风正被其他应用（如微信通话、录音机）独占，请先关闭它们。";
-                } else if (err.message === 'BrowserNotSupported' || err.name === 'NotSupportedError') {
-                    errorMsg += "当前浏览器内核太老，或当前网页未开启 HTTPS 加密传输，底层安全机制拦截了麦克风调用。";
-                } else {
-                    errorMsg += err.message || err.name;
-                }
+                let errorMsg = "设备连接失败！\n";
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') errorMsg += "您拒绝了麦克风权限，或应用无权限。";
+                else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') errorMsg += "找不到麦克风硬件。";
+                else if (err.message === 'BrowserNotSupported' || err.name === 'NotSupportedError') errorMsg += "必须在系统自带浏览器或 Chrome 的 HTTPS 安全环境下使用！请不要在微信内直接打开。";
+                else errorMsg += err.message || err.name;
                 alert(errorMsg);
                 throw err;
             }
@@ -228,22 +237,23 @@
             req.onsuccess = e => { db = e.target.result; res(); };
         });
 
+        // 加密器全面升级，使用安全转换防止图片崩溃
         const cryptoOp = {
             async gen() { return await window.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["encrypt", "decrypt"]); },
-            async export(k) { return btoa(String.fromCharCode(...new Uint8Array(await window.crypto.subtle.exportKey("spki", k)))); },
+            async export(k) { return safeBuf2B64(await window.crypto.subtle.exportKey("spki", k)); },
             async enc(txt, pubStr) {
-                const pub = await window.crypto.subtle.importKey("spki", Uint8Array.from(atob(pubStr), c=>c.charCodeAt(0)).buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+                const pub = await window.crypto.subtle.importKey("spki", safeB642Buf(pubStr), { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
                 const aes = await window.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
                 const iv = window.crypto.getRandomValues(new Uint8Array(12));
                 const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aes, new TextEncoder().encode(txt));
                 const k = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, pub, await window.crypto.subtle.exportKey("raw", aes));
-                return JSON.stringify({ k: btoa(String.fromCharCode(...new Uint8Array(k))), i: btoa(String.fromCharCode(...new Uint8Array(iv))), c: btoa(String.fromCharCode(...new Uint8Array(cipher))) });
+                return JSON.stringify({ k: safeBuf2B64(k), i: safeBuf2B64(iv), c: safeBuf2B64(cipher) });
             },
             async dec(str, priv) {
                 const p = JSON.parse(str);
-                const rawK = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, priv, Uint8Array.from(atob(p.k), c=>c.charCodeAt(0)).buffer);
+                const rawK = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, priv, safeB642Buf(p.k));
                 const aes = await window.crypto.subtle.importKey("raw", rawK, "AES-GCM", false, ["decrypt"]);
-                return new TextDecoder().decode(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(atob(p.i), c=>c.charCodeAt(0)) }, aes, Uint8Array.from(atob(p.c), c=>c.charCodeAt(0)).buffer));
+                return new TextDecoder().decode(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: safeB642Buf(p.i) }, aes, safeB642Buf(p.c)));
             }
         };
 
@@ -282,22 +292,22 @@
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
-        const logout = () => { if(confirm('确定要退出当前账号吗？\n只要您没有手动清理缓存，下次只需输入密码即可登录。')) { sessionStorage.clear(); location.reload(); } };
+        const logout = () => { if(confirm('确定要退出当前账号吗？')) { sessionStorage.clear(); location.reload(); } };
 
         const exportData = async (targetUid = '') => {
             try {
                 const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)});
                 const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)});
                 const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)});
-                if (keys.length === 0) { alert('当前没有任何账号数据可供备份！'); return; }
+                if (keys.length === 0) return alert('没有任何数据！');
                 const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'});
                 const a = document.createElement('a'); a.href = URL.createObjectURL(b);
                 const idStr = targetUid ? `_UID_${targetUid}` : '';
                 a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; a.click();
-            } catch (error) { alert('导出失败，请检查浏览器下载权限！'); }
+            } catch (error) { alert('导出失败'); }
         };
 
-        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请直接登录！');location.reload();}; }catch(err){alert('文件格式错误！');} }; r.readAsText(f); };
+        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请登录！');location.reload();}; }catch(err){alert('格式错误！');} }; r.readAsText(f); };
 
         const switchTab = (tabId, element) => {
             ['msgs', 'contacts', 'requests', 'profile'].forEach(id => document.getElementById(`tab-${id}`).classList.add('hidden'));
@@ -365,7 +375,7 @@
             const listM = document.getElementById('msg-list'); listM.innerHTML = '';
             const contacts = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').getAll(); req.onsuccess = () => r(req.result); });
             let totalUnread = 0;
-            if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">空空如也</div>'; }
+            if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无会话</div>'; }
             contacts.forEach(c => {
                 const isOnline = onlineUsers.has(c.uid); const unread = unreadMap[c.uid] || 0; totalUnread += unread;
                 const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;margin:0;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
@@ -430,14 +440,22 @@
         
         const appendDOM = (m) => {
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
-            let html = m.mType==='text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType==='audio'?`<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`:`<a href="${m.content}" download style="color:#fff;">📁 点击下载文件</a>`);
+            let html = '';
+            if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
+            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`;
+            else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
             box.appendChild(row);
         };
         const prependDOM = (m) => {
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
-            let html = m.mType==='text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType==='audio'?`<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`:`<a href="${m.content}" download style="color:#fff;">📁 点击下载文件</a>`);
+            let html = '';
+            if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
+            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`;
+            else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
             box.insertBefore(row, box.firstChild);
@@ -452,18 +470,61 @@
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: enc });
         };
         
-        const handleFileUpload = (event) => { const file = event.target.files[0]; if (!file) return; if (file.size > 5 * 1024 * 1024) return alert('限制文件最大 5MB'); const reader = new FileReader(); reader.onload = async (e) => { await sendMessage('file', e.target.result); document.getElementById('file-upload').value = ''; }; reader.readAsDataURL(file); };
+        // 核心修复二：使用 Canvas 引擎深度压缩图片，防止超大体积引发 Base64 内存崩溃
+        const handleFileUpload = (event) => { 
+            const file = event.target.files[0]; if (!file) return; 
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let w = img.width, h = img.height;
+                        const maxW = 1200; // 限制图片最大宽度为 1200px
+                        if(w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+                        canvas.width = w; canvas.height = h;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                        sendMessage('image', canvas.toDataURL('image/jpeg', 0.6)); // 压缩至 60% 质量
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                if (file.size > 2 * 1024 * 1024) return alert('为了防止内存崩溃，非图片文件限制最大 2MB'); 
+                const reader = new FileReader(); 
+                reader.onload = async (e) => { await sendMessage('file', e.target.result); }; 
+                reader.readAsDataURL(file); 
+            }
+            document.getElementById('file-upload').value = ''; 
+        };
         
-        // 使用新写的兼容版 API 录音
-        const startRecording = async () => { try { const s = await getMicrophoneAccess(); mediaRecorder = new MediaRecorder(s); audioChunks = []; mediaRecorder.ondataavailable = e => audioChunks.push(e.data); mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); } catch(e) { /* Error already handled by getMicrophoneAccess */ } };
-        const stopRecording = () => { if(mediaRecorder && mediaRecorder.state !== 'inactive') { mediaRecorder.stop(); document.getElementById('voice-btn').classList.remove('recording'); } };
+        // 核心修复三：录音双击防重入引擎
+        const startRecording = async (e) => { 
+            e.preventDefault(); 
+            if(isRecording) return; 
+            isRecording = true;
+            try { 
+                const s = await getMicrophoneAccess(); 
+                mediaRecorder = new MediaRecorder(s); audioChunks = []; 
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data); 
+                mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; 
+                mediaRecorder.start(); document.getElementById('voice-btn').classList.add('recording'); 
+            } catch(e) { 
+                isRecording = false; 
+            } 
+        };
+        const stopRecording = (e) => { 
+            e.preventDefault(); 
+            if(mediaRecorder && mediaRecorder.state !== 'inactive') { mediaRecorder.stop(); } 
+            document.getElementById('voice-btn').classList.remove('recording'); 
+            isRecording = false; 
+        };
         
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        // 使用新写的兼容版 API 发起实时语音
         const startCall = async () => {
             document.getElementById('webrtc-view').classList.remove('hidden'); 
             document.getElementById('call-status').innerText = "正在等待对方接听...";
