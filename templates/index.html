@@ -1,219 +1,8 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zeno</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-    <style>
-        :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --border: #334155; --text-muted: #94a3b8; --nav-bg: #162032;}
-        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; -webkit-font-smoothing: antialiased; }
-        .hidden { display: none !important; }
-        input, button { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); outline: none; font-size: 16px; transition: all 0.2s; }
-        input { background: #0f172a; color: white; }
-        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
-        button { background: var(--primary); color: white; font-weight: bold; cursor: pointer; border: none; display: flex; justify-content: center; align-items: center; gap: 8px; }
-        button:active { transform: scale(0.98); }
-        button.secondary { background: #334155; }
-        button.danger { background: var(--danger); }
-        button.success { background: var(--success); }
-        
-        .container { max-width: 500px; margin: auto; padding: 20px; width: 100%; box-sizing: border-box;}
-        .panel { background: var(--panel); padding: 30px 25px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        
-        #app-layout { display: flex; flex-direction: column; height: 100vh; height: 100dvh; width: 100vw; background: var(--bg); }
-        .content-area { flex: 1; overflow-y: auto; padding: 20px; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
-        .nav-bar { display: flex; background: var(--nav-bg); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); z-index: 50; flex-shrink: 0;}
-        .nav-item { flex: 1; text-align: center; padding: 15px 0; cursor: pointer; color: var(--text-muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative;}
-        .nav-item.active { color: var(--primary); }
-        .nav-icon { font-size: 20px; }
-        .badge { background: var(--danger); color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; position: absolute; top: 5px; right: 20%; font-weight: bold; }
-
-        @media (min-width: 768px) {
-            #app-layout { flex-direction: row; }
-            .nav-bar { flex-direction: column; width: 220px; border-top: none; border-right: 1px solid var(--border); padding-top: 20px; justify-content: flex-start; gap: 10px;}
-            .nav-item { flex: none; flex-direction: row; padding: 15px 25px; font-size: 16px; justify-content: flex-start; gap: 15px;}
-            .badge { top: 15px; right: 20px; }
-            .content-area { max-width: 800px; margin: 0 auto; width: 100%; }
-        }
-
-        .list-item { padding: 15px; background: #334155; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; position: relative; }
-        .profile-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid var(--border); padding: 30px; border-radius: 16px; text-align: center; margin-bottom: 20px;}
-        .profile-uid { font-size: 32px; font-weight: bold; letter-spacing: 4px; margin: 15px 0; color: #fff; font-family: monospace; word-break: break-all;}
-        
-        #chat-view { display: flex; flex-direction: column; height: 100vh; height: 100dvh; background: var(--bg); position: fixed; inset: 0; z-index: 100; }
-        .header-bar { padding: 15px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-top: max(15px, env(safe-area-inset-top)); flex-shrink: 0;}
-        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; -webkit-overflow-scrolling: touch; }
-        .msg-row { display: flex; width: 100%; flex-direction: column; }
-        .me { align-items: flex-end; }
-        .other { align-items: flex-start; }
-        .msg-bubble { max-width: 85%; padding: 10px 15px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; word-break: break-word; }
-        .me .msg-bubble { background: var(--msg-me); border-bottom-right-radius: 2px; }
-        .other .msg-bubble { background: var(--msg-other); border-bottom-left-radius: 2px; }
-        .msg-time { font-size: 10px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
-        #chat-input-area { padding: 10px 15px; background: var(--panel); display: flex; gap: 8px; align-items: center; padding-bottom: max(10px, env(safe-area-inset-bottom)); flex-shrink: 0;}
-        #chat-input-area input { margin: 0; flex: 1; }
-        #send-btn { width: auto; padding: 0 15px; margin: 0; height: 42px;}
-        
-        .clip-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; margin: 0; flex-shrink: 0; background: var(--secondary); display: flex; align-items: center; justify-content: center;}
-        
-        .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
-        .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
-        #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
-        
-        #webrtc-view { position: fixed; inset: 0; background: #0f172a; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .call-avatar { width: 100px; height: 100px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 50px; margin-bottom: 20px; border: 2px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.3);}
-        .call-name { font-size: 24px; font-weight: bold; color: white; margin-bottom: 10px; }
-        .call-status-text { font-size: 14px; color: var(--text-muted); margin-bottom: 60px; }
-        .call-tools { display: flex; gap: 40px; }
-        .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; margin: 0;}
-        .tick-read { color: var(--success); font-weight: bold; }
-        .flex { display: flex; gap: 10px;}
-        
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    </style>
-</head>
-<body>
-    <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
-
-    <div id="guide-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div class="panel" style="width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto; text-align: left; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
-            <h2 style="color: var(--primary); margin-top: 0; text-align: center; font-size: 22px;">📖 Zeno 防丢与使用手册</h2>
-            
-            <div style="color: var(--text); font-size: 14px; line-height: 1.7;">
-                <div style="background: rgba(239, 68, 68, 0.1); padding: 12px; border-left: 4px solid var(--danger); border-radius: 4px; margin-bottom: 15px;">
-                    <h4 style="color: var(--danger); margin: 0 0 8px 0;">⚠️ 核心警告：阅后即焚，神仙难救</h4>
-                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器<b>绝对不存</b>您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。<b>如果你清除了浏览器缓存，数据将彻底灰飞烟灭！</b></p>
-                </div>
-
-                <h4 style="color: var(--success); margin-bottom: 8px;">💾 必看：正确的数据备份姿势</h4>
-                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
-                    <li style="margin-bottom: 6px;"><b>初始备份包：</b>刚注册时下载的备份包，里面<b>只有你的账号身份</b>，没有好友。</li>
-                    <li style="margin-bottom: 6px;"><b style="color: #fff;">全量备份包 (极度重要)：</b>当您添加了好友并聊过天后，如果准备换手机、清理手机垃圾、或者关闭无痕浏览器前，<b>必须进入底部的【⚙️ 我的】 -> 点击【💾 导出本地加密数据包】</b>。这个新下载的包才包含完整的通讯录和聊天记录！</li>
-                    <li><b>如何恢复：</b>在登录界面点击【📂 导入恢复包】，选择您最新导出的那个全量备份包，即可满血复活。</li>
-                </ul>
-
-                <h4 style="color: var(--primary); margin-bottom: 8px;">📞 实时语音通话说明</h4>
-                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
-                    <li style="margin-bottom: 6px;">双方必须都开着网页才能接通，如果对方已锁屏或退出浏览器，系统会直接拦截拨打。</li>
-                    <li>通话采用 P2P 物理直连，完全不消耗服务器流量，极度安全。</li>
-                </ul>
-            </div>
-            
-            <button class="success" style="margin-top: 25px; height: 48px; font-size: 16px;" onclick="document.getElementById('guide-modal').classList.add('hidden')">✅ 我已牢记以上规则</button>
-        </div>
-    </div>
-
-    <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
-            <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
-            <p style="color: var(--text-muted); font-size: 14px;">您的加密私钥已保存在本设备。<br>强烈建议立即下载身份备份，以免账号丢失！</p>
-            <div class="profile-uid" id="new-uid-display"></div>
-            <button class="success" onclick="downloadBackupAndLogin()" style="margin-bottom: 12px; height: 50px; font-size: 16px;">💾 一键下载初始备份包</button>
-            <button class="secondary" onclick="closeUidModal()">稍后自己备份，直接登录</button>
-        </div>
-    </div>
-
-    <div id="auth-view" class="container">
-        <div class="panel">
-            <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>Zeno</h2><p style="color: var(--text-muted); font-size: 13px;">安全 · 私密 · 无痕</p></div>
-            
-            <input type="text" id="uid-input" placeholder="8位数字 UID" maxlength="8">
-            <input type="password" id="password" placeholder="安全密码">
-            <button onclick="login()" style="height: 48px; font-size: 16px; margin-top: 15px;">登 录</button>
-            <button class="secondary" onclick="register()">创建新账号</button>
-            
-            <div class="flex" style="margin-top:20px; border-top: 1px dashed var(--border); padding-top: 20px;">
-                <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="exportData()">💾 导出本地数据</button>
-                <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
-                <input type="file" id="import-file" class="hidden" onchange="importData(event)">
-            </div>
-            
-            <button style="margin-top: 15px; background: transparent; border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 新手必读：防丢说明书</button>
-        </div>
-    </div>
-
-    <div id="app-layout" class="hidden">
-        <div class="content-area">
-            <div id="tab-msgs">
-                <h2 style="margin-top:0;">会话</h2>
-                <div id="msg-list"></div>
-            </div>
-
-            <div id="tab-contacts" class="hidden">
-                <h2 style="margin-top:0;">联系人</h2>
-                <div id="user-list"></div>
-            </div>
-
-            <div id="tab-requests" class="hidden">
-                <h2 style="margin-top:0;">添加好友</h2>
-                <div class="flex" style="margin-bottom: 25px;">
-                    <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID 搜索" maxlength="8" style="margin:0;">
-                    <button class="primary" style="width:90px; margin:0;" onclick="searchAndRequest()">搜索</button>
-                </div>
-                <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求</h4>
-                <div id="request-list"></div>
-            </div>
-
-            <div id="tab-profile" class="hidden">
-                <h2 style="margin-top:0;">个人中心</h2>
-                <div class="profile-card">
-                    <div style="color:var(--text-muted); font-size:14px;">我的专属 UID</div>
-                    <div class="profile-uid" id="profile-uid-show"></div>
-                    <div style="font-size:20px; font-weight:bold; margin-bottom: 5px;" id="profile-name-show"></div>
-                </div>
-                
-                <h4 style="color:var(--text-muted);">资料与帮助</h4>
-                <div class="flex">
-                    <input type="text" id="settings-nickname" placeholder="修改昵称" style="margin:0;">
-                    <button onclick="saveProfile()" style="width: 100px; margin:0;">更新</button>
-                </div>
-                <button style="margin-top: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 查看安全与防丢说明书</button>
-                
-                <h4 style="color:var(--text-muted); margin-top: 30px;">数据安全管理</h4>
-                <button class="success" onclick="exportData(currentUid)">💾 离线前必备：导出完整数据包</button>
-                <button class="danger" onclick="logout()" style="margin-top: 15px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">🚪 退出当前账号</button>
-            </div>
-        </div>
-
-        <div class="nav-bar">
-            <div class="nav-item active" onclick="switchTab('msgs', this)"><span class="nav-icon">💬</span><span>消息</span><span id="badge-msgs" class="badge hidden"></span></div>
-            <div class="nav-item" onclick="switchTab('contacts', this)"><span class="nav-icon">👥</span><span>联系人</span></div>
-            <div class="nav-item" onclick="switchTab('requests', this)"><span class="nav-icon">👋</span><span>新朋友</span><span id="badge-reqs" class="badge hidden"></span></div>
-            <div class="nav-item" onclick="switchTab('profile', this)"><span class="nav-icon">⚙️</span><span>我的</span></div>
-        </div>
-    </div>
-
-    <div id="chat-view" class="hidden">
-        <div class="header-bar">
-            <div><strong id="chat-target-name"></strong><br><span id="chat-target-status" style="font-size:11px;"></span></div>
-            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px; margin:0;" onclick="clearChat()">清空</button><button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="closeChat()">返回</button></div>
-        </div>
-        <div id="chat-box" onscroll="handleChatScroll()"></div>
-        <div id="chat-input-area">
-            <button class="secondary clip-btn" onclick="document.getElementById('file-upload').click()">📎</button>
-            <input type="file" id="file-upload" class="hidden" accept="*/*" onchange="handleFileUpload(event)">
-            <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
-            <button id="send-btn" onclick="sendMessage()">发送</button>
-        </div>
-    </div>
-
-    <div id="webrtc-view" class="hidden">
-        <audio id="remote-audio" autoplay playsinline></audio>
-        <div class="call-avatar">👤</div>
-        <div class="call-name" id="call-target-display-name">未知联系人</div>
-        <div class="call-status-text" id="call-status">正在发起语音通话...</div>
-        <div class="call-tools" id="call-tools"><button class="danger circle-btn" onclick="endCall()">☎</button></div>
-        <div class="call-tools hidden" id="incoming-tools"><button class="danger circle-btn" onclick="endCall()">☎</button><button class="success circle-btn" onclick="acceptCall()">📞</button></div>
-    </div>
-
-    <script>
-        let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream;
+let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false;
         let activeCallTarget = null;
         let iceCandidateQueue = []; 
+        let callTimeout = null; // 新增：全局防傻等超时锁
         const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }] };
 
         const safeBuf2B64 = (buffer) => {
@@ -243,7 +32,7 @@
                 let errorMsg = "设备连接失败！\n";
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') errorMsg += "您拒绝了麦克风权限，或应用无权限。";
                 else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') errorMsg += "找不到麦克风硬件。";
-                else if (err.message === 'BrowserNotSupported' || err.name === 'NotSupportedError') errorMsg += "必须在系统自带浏览器或 Chrome 的 HTTPS 安全环境下使用！请不要在微信内打开。";
+                else if (err.message === 'BrowserNotSupported' || err.name === 'NotSupportedError') errorMsg += "必须在系统自带浏览器或 Chrome 的 HTTPS 环境下使用！请勿在微信内打开。";
                 else errorMsg += err.message || err.name;
                 alert(errorMsg);
                 throw err;
@@ -562,12 +351,13 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话的本地记录？此操作不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
+        // 核心修复引擎：自动断线诊断与防呆机制
         const startCall = async () => {
             if(!onlineUsers.has(currentTargetUid)) return alert("对方当前不在线或已锁屏，无法接通！");
             try {
                 localStream = await getMicrophoneAccess(); 
                 document.getElementById('webrtc-view').classList.remove('hidden'); 
-                document.getElementById('call-status').innerText = "正在呼叫，等待接听...";
+                document.getElementById('call-status').innerText = "正在发送信令...";
                 document.getElementById('call-target-display-name').innerText = currentTargetName;
 
                 peerConnection = new RTCPeerConnection(STUN);
@@ -575,15 +365,20 @@
                 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => {
-                    if(e.candidate) {
-                        socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
-                    }
+                    if(e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
                 };
                 peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                 
                 const offer = await peerConnection.createOffer(); 
                 await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
+                
+                // 10秒防死等机制，如果对方收不到（半死机），立刻掐断
+                clearTimeout(callTimeout);
+                callTimeout = setTimeout(() => {
+                    alert("信令发送失败：对方网络异常或已将浏览器退至后台休眠。");
+                    endCallLocal();
+                }, 10000);
             } catch(e) {}
         };
         
@@ -592,29 +387,49 @@
                 if(d.type === 'offer') {
                     if(!document.getElementById('webrtc-view').classList.contains('hidden')) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
                     
-                    const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
-                    const callerName = contact ? contact.nick : d.from;
+                    // 收到信号立刻给主叫方回传“我没死机，我正在响铃”
+                    socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ringing' });
                     
-                    showPushNotification("来电提醒", `${callerName} 邀请您语音通话`);
-                    document.getElementById('call-target-display-name').innerText = callerName;
-                    document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请您进行语音通话...";
+                    // UI 第一原则：无条件优先弹窗，不再等待数据库查询导致卡死
+                    document.getElementById('call-target-display-name').innerText = "来电: " + d.from;
+                    document.getElementById('webrtc-view').classList.remove('hidden'); 
+                    document.getElementById('call-tools').classList.add('hidden'); 
+                    document.getElementById('incoming-tools').classList.remove('hidden'); 
+                    document.getElementById('call-status').innerText = "邀请您进行语音通话...";
                     
+                    // 异步非阻塞查询通讯录名字
+                    try {
+                        const req = db.transaction('contacts').objectStore('contacts').get(d.from);
+                        req.onsuccess = () => {
+                            const callerName = req.result ? req.result.nick : d.from;
+                            document.getElementById('call-target-display-name').innerText = callerName;
+                            showPushNotification("来电提醒", `${callerName} 邀请您语音通话`);
+                        };
+                    } catch(err) {}
+
                     peerConnection = new RTCPeerConnection(STUN);
-                    iceCandidateQueue = [];
                     peerConnection.onicecandidate = e => {
-                        if(e.candidate) {
-                            socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
-                        }
+                        if(e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
                     };
                     peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                     
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     activeCallTarget = d.from;
                     while(iceCandidateQueue.length > 0) { peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); }
+                
+                } else if(d.type === 'ringing') {
+                    // 收到对方回执，取消 10秒防死等机制
+                    clearTimeout(callTimeout); 
+                    document.getElementById('call-status').innerText = "对方手机正在响铃，等待接听...";
+                    // 重新设定一个30秒无人接听超时
+                    callTimeout = setTimeout(() => { alert("对方暂时无人接听"); endCallLocal(); }, 30000);
+                
                 } else if(d.type === 'answer') { 
+                    clearTimeout(callTimeout);
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     document.getElementById('call-status').innerText = "通话中"; 
                     while(iceCandidateQueue.length > 0) { peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); }
+                
                 } else if(d.type === 'ice') { 
                     if (peerConnection && peerConnection.remoteDescription) {
                         peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{});
@@ -622,13 +437,13 @@
                         iceCandidateQueue.push(d.ice); 
                     }
                 } else if(d.type === 'busy') { 
-                    alert("对方正忙..."); endCallLocal(); 
+                    clearTimeout(callTimeout); alert("对方正忙..."); endCallLocal(); 
                 } else if(d.type === 'reject') { 
-                    alert("对方已拒接或无法获取麦克风"); endCallLocal(); 
+                    clearTimeout(callTimeout); alert("对方已拒接或无法获取麦克风"); endCallLocal(); 
                 } else if(d.type === 'end') { 
-                    endCallLocal(); 
+                    clearTimeout(callTimeout); endCallLocal(); 
                 }
-            } catch(e) {}
+            } catch(e) { console.log('信令处理异常'); }
         };
         
         const acceptCall = async () => {
@@ -646,11 +461,8 @@
         };
         
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
-        const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
+        const endCallLocal = () => { clearTimeout(callTimeout); if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
 
         const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('资料更新成功'); };
 
         window.onload = async () => { await initDB(); const u = sessionStorage.getItem('chat_uid'); if(u) { document.getElementById('uid-input').value = u; } };
-    </script>
-</body>
-</html>
