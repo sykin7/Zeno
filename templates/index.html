@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zeno</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href='data:application/manifest+json,{"name":"Zeno","short_name":"Zeno","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a"}'>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --primary: #3b82f6; --msg-me: #2563eb; --msg-other: #334155; --success: #10b981; --danger: #ef4444; --border: #334155; --text-muted: #94a3b8; --nav-bg: #162032;}
@@ -68,6 +71,24 @@
 </head>
 <body>
     <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
+    
+    <div id="lock-screen" class="hidden" style="position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
+        <div style="font-size: 50px; margin-bottom: 20px;">🔒</div>
+        <h2 style="color: white; margin-top: 0;">Zeno 已安全锁定</h2>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 30px;">检测到您长时间未操作，为保护隐私已锁定。</p>
+        <div style="width: 100%; max-width: 300px;">
+            <input type="password" id="unlock-password" placeholder="请输入本账号的安全密码">
+            <button class="success" onclick="unlockZeno()" style="height: 48px; margin-top: 15px;">解 锁</button>
+            <button class="danger" onclick="logout()" style="height: 48px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">安全退出</button>
+        </div>
+    </div>
+    
+    <div id="upload-mask" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 99999; display: flex; align-items: center; justify-content: center; flex-direction: column; color: var(--success); font-weight: bold;">
+        <div style="border: 4px solid rgba(255,255,255,0.1); border-left-color: var(--success); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
+        <div>🔐 正在高强度加密并发送中...</div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+
     <div id="guide-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="panel" style="width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto; text-align: left; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
             <h2 style="color: var(--primary); margin-top: 0; text-align: center; font-size: 22px;">📖 Zeno 防丢与使用手册</h2>
@@ -146,7 +167,7 @@
     <div id="chat-view" class="hidden">
         <div class="header-bar">
             <div><strong id="chat-target-name"></strong><br><span id="chat-target-status" style="font-size:11px;"></span></div>
-            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px; margin:0;" onclick="clearChat()">清空</button><button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="closeChat()">返回</button></div>
+            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px; margin:0;" onclick="nukeChat()">🔥毁灭</button><button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="closeChat()">返回</button></div>
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
@@ -170,6 +191,17 @@
         const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }] };
         const safeBuf2B64 = (b) => { const x = new Uint8Array(b); let r = ''; for(let i=0; i<x.byteLength; i+=8192) r+=String.fromCharCode.apply(null, x.subarray(i, i+8192)); return btoa(r); };
         const safeB642Buf = (s) => { const x = atob(s); const l = x.length; const r = new Uint8Array(l); for(let i=0; i<l; i++) r[i]=x.charCodeAt(i); return r.buffer; };
+        
+        let idleTimer;
+        const resetIdleTimer = () => {
+            clearTimeout(idleTimer);
+            if(sessionStorage.getItem('chat_uid')) { idleTimer = setTimeout(() => { document.getElementById('lock-screen').classList.remove('hidden'); }, 3 * 60 * 1000); }
+        };
+        const unlockZeno = () => {
+            if(document.getElementById('unlock-password').value === sessionStorage.getItem('temp_pwd')) { document.getElementById('lock-screen').classList.add('hidden'); document.getElementById('unlock-password').value = ''; resetIdleTimer(); } 
+            else { alert("密码错误！"); }
+        };
+        window.addEventListener('touchstart', resetIdleTimer); window.addEventListener('click', resetIdleTimer); window.addEventListener('scroll', resetIdleTimer);
         
         const acquireWakeLock = async () => { try { if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {} };
         const releaseWakeLock = () => { if(wakeLock) { wakeLock.release(); wakeLock = null; } };
@@ -241,6 +273,7 @@
             if(!k) return alert("本地缺失解密私钥！请点击【导入恢复包】。");
             currentUid = u; currentNickname = res.nickname; currentToken = res.token;
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
+            sessionStorage.setItem('temp_pwd', p); resetIdleTimer();
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
             document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
             await initUnreadMap(); requestNotifyPermission(); initSocket(); renderUI();
@@ -314,6 +347,15 @@
                     const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: d.from }) }).then(r=>r.json());
                     if(res.status === 'ok') { db.transaction('contacts', 'readwrite').objectStore('contacts').put({ uid: res.uid, nick: res.nickname, pub: res.public_key }); showPushNotification("系统", `${res.nickname} 已通过请求`); renderUI(); }
                     return; 
+                }
+                if(msg.t === 'sys_nuke') {
+                    const tx = db.transaction('messages', 'readwrite'); 
+                    tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(d.from)).onsuccess = e => { 
+                        const c = e.target.result; 
+                        if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } 
+                        else if(currentTargetUid === d.from) { document.getElementById('chat-box').innerHTML = ''; alert("💥 对方执行了双向核爆，此会话已被彻底销毁！"); }
+                    };
+                    return;
                 }
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
                 const c = await new Promise(r => db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => r(e.target.result));
@@ -398,16 +440,28 @@
         
         const handleFileUpload = (ev) => { 
             const f = ev.target.files[0]; if (!f) return; 
+            document.getElementById('upload-mask').classList.remove('hidden');
             if (f.type.startsWith('image/')) {
-                const r = new FileReader(); r.onload = e => { const img = new Image(); img.onload = () => { const cvs = document.createElement('canvas'); let w = img.width, h = img.height; if(w > 1200) { h = Math.round(h * 1200 / w); w = 1200; } cvs.width = w; cvs.height = h; cvs.getContext('2d').drawImage(img, 0, 0, w, h); sendMessage('image', cvs.toDataURL('image/jpeg', 0.6)); }; img.src = e.target.result; }; r.readAsDataURL(f);
-            } else { if (f.size > 2 * 1024 * 1024) return alert('限制 2MB'); const r = new FileReader(); r.onload = async e => await sendMessage('file', e.target.result); r.readAsDataURL(f); }
+                const r = new FileReader(); r.onload = e => { const img = new Image(); img.onload = async () => { const cvs = document.createElement('canvas'); let w = img.width, h = img.height; if(w > 1200) { h = Math.round(h * 1200 / w); w = 1200; } cvs.width = w; cvs.height = h; cvs.getContext('2d').drawImage(img, 0, 0, w, h); await sendMessage('image', cvs.toDataURL('image/jpeg', 0.6)); document.getElementById('upload-mask').classList.add('hidden'); }; img.src = e.target.result; }; r.readAsDataURL(f);
+            } else { if (f.size > 2 * 1024 * 1024) { alert('限制 2MB'); document.getElementById('upload-mask').classList.add('hidden'); return; } const r = new FileReader(); r.onload = async e => { await sendMessage('file', e.target.result); document.getElementById('upload-mask').classList.add('hidden'); }; r.readAsDataURL(f); }
             document.getElementById('file-upload').value = ''; 
         };
         
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
-        const clearChat = () => { if(confirm("清空？")) { db.transaction('messages', 'readwrite').objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } else document.getElementById('chat-box').innerHTML = ''; }; } };
+        
+        const nukeChat = async () => { 
+            if(confirm("🔥 警告：此操作将双向毁灭！\n\n双方手机中属于此对话的所有记录都将被瞬间物理粉碎！确定执行核爆？")) { 
+                socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_nuke', c: 'nuke' }), targetPublicKeyStr) });
+                const tx = db.transaction('messages', 'readwrite'); 
+                tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { 
+                    const c = e.target.result; 
+                    if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } 
+                    else { document.getElementById('chat-box').innerHTML = ''; alert("💥 您的本地记录已粉碎，核爆信令已发出！"); } 
+                }; 
+            } 
+        };
 
         const startCall = async () => {
             if(!onlineUsers.has(currentTargetUid)) return alert("对方离线");
