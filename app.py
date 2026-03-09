@@ -9,7 +9,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
-# 开启自适应网络降级，适应所有手机基站
 socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760, ping_timeout=10, ping_interval=5)
 
 DB_PATH = os.path.join('data', 'users.db')
@@ -123,6 +122,7 @@ def update_profile():
 @socketio.on('register_socket')
 def handle_register(data):
     uid, token = data.get('uid'), data.get('token')
+    # 增加 Token 哨兵：如果验证失败，直接通知手机端弹出重登提示，绝不静默装死
     if uid and auth_tokens.get(uid) == token:
         connected_users[uid] = request.sid
         emit('online_users', {'users': list(connected_users.keys())}, to=request.sid)
@@ -140,6 +140,7 @@ def handle_register(data):
         conn.commit()
         conn.close()
     else: 
+        emit('auth_error', {'error': 'token_invalid'}, to=request.sid)
         disconnect()
 
 @socketio.on('disconnect')
@@ -154,7 +155,6 @@ def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
     
-    # 强制将时间戳转化为整数，防止移动端JS解析浮点数报错
     now_ms = int(time.time() * 1000)
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
