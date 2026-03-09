@@ -16,6 +16,7 @@ connected_users = {}
 auth_tokens = {}
 message_limits = {}
 auth_limits = {}
+ip_reg_counts = {}
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -43,21 +44,41 @@ def index():
 def register():
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     now = time.time()
+    
     if now - auth_limits.get(ip, 0) < 2.0:
-        return jsonify({'error': 'Limit'}), 429
+        return jsonify({'error': '操作过于频繁'}), 429
     auth_limits[ip] = now
+    
+    if ip not in ip_reg_counts:
+        ip_reg_counts[ip] = {'count': 0, 'reset_time': now + 86400}
+    if now > ip_reg_counts[ip]['reset_time']:
+        ip_reg_counts[ip] = {'count': 0, 'reset_time': now + 86400}
+    if ip_reg_counts[ip]['count'] >= 3:
+        return jsonify({'error': '该IP今日注册次数已达安全限制'}), 403
+
     data = request.json
     nickname, password, public_key = data.get('nickname'), data.get('password'), data.get('public_key')
+    
     if not nickname or not password or not public_key:
         return jsonify({'error': 'Missing'}), 400
+        
     conn = get_db()
+    
+    total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if total_users >= 5000:
+        conn.close()
+        return jsonify({'error': '系统注册容量已满，暂停新用户开放'}), 503
+
     while True:
         uid = str(random.randint(10000000, 99999999))
         if not conn.execute('SELECT 1 FROM users WHERE uid = ?', (uid,)).fetchone(): break
+        
     pwd_hash = generate_password_hash(password)
     conn.execute('INSERT INTO users (uid, nickname, password_hash, public_key) VALUES (?, ?, ?, ?)', (uid, nickname, pwd_hash, public_key))
     conn.commit()
     conn.close()
+    
+    ip_reg_counts[ip]['count'] += 1
     return jsonify({'status': 'ok', 'uid': uid})
 
 @app.route('/api/login', methods=['POST'])
@@ -65,7 +86,7 @@ def login():
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     now = time.time()
     if now - auth_limits.get(ip, 0) < 2.0:
-        return jsonify({'error': 'Limit'}), 429
+        return jsonify({'error': '操作过于频繁'}), 429
     auth_limits[ip] = now
     data = request.json
     uid, password = data.get('uid'), data.get('password')
@@ -126,12 +147,9 @@ def handle_disconnect():
 def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
-    
     now = time.time()
-    if now - message_limits.get(sender_uid, 0) < 0.5:
-        return
+    if now - message_limits.get(sender_uid, 0) < 0.5: return
     message_limits[sender_uid] = now
-
     now_ms = now * 1000
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
@@ -162,7 +180,6 @@ def handle_fetch_requests(data):
     expire_time = time.time() - 604800
     conn.execute('DELETE FROM friend_requests WHERE timestamp < ?', (expire_time,))
     conn.commit()
-    
     reqs = conn.execute('SELECT id, from_uid, payload, timestamp FROM friend_requests WHERE to_uid = ? ORDER BY timestamp DESC', (uid,)).fetchall()
     conn.close()
     emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': r['timestamp'] * 1000} for r in reqs], to=request.sid)
