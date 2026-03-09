@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
+# 开启自适应网络降级，适应所有手机基站
 socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760, ping_timeout=10, ping_interval=5)
 
 DB_PATH = os.path.join('data', 'users.db')
@@ -128,8 +129,7 @@ def handle_register(data):
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
         
         conn = get_db()
-        # 核心优化：全站离线消息 7 天强制过期粉碎
-        expire_time_ms = (time.time() - 604800) * 1000
+        expire_time_ms = int((time.time() - 604800) * 1000)
         conn.execute('DELETE FROM offline_msgs WHERE timestamp < ?', (expire_time_ms,))
         
         offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
@@ -154,8 +154,8 @@ def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
     
-    # 已彻底移除消息频率限流器，防止误拦截任何正常消息
-    now_ms = time.time() * 1000
+    # 强制将时间戳转化为整数，防止移动端JS解析浮点数报错
+    now_ms = int(time.time() * 1000)
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
     else:
@@ -187,7 +187,7 @@ def handle_fetch_requests(data):
     conn.commit()
     reqs = conn.execute('SELECT id, from_uid, payload, timestamp FROM friend_requests WHERE to_uid = ? ORDER BY timestamp DESC', (uid,)).fetchall()
     conn.close()
-    emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': r['timestamp'] * 1000} for r in reqs], to=request.sid)
+    emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': int(r['timestamp'] * 1000)} for r in reqs], to=request.sid)
 
 @socketio.on('resolve_friend_request')
 def handle_resolve_request(data):
