@@ -250,6 +250,14 @@
                 return new TextDecoder().decode(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: safeB642Buf(p.i) }, aes, safeB642Buf(p.c)));
             }
         };
+        
+        const initUnreadMap = async () => {
+            const msgs = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
+            unreadMap = {};
+            msgs.forEach(m => {
+                if (m.type === 'other' && m.status === 0) { unreadMap[m.contact] = (unreadMap[m.contact] || 0) + 1; }
+            });
+        };
 
         const register = async () => {
             const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
@@ -275,6 +283,7 @@
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
             document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
+            await initUnreadMap();
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
@@ -294,6 +303,13 @@
         };
 
         const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请登录！');location.reload();}; }catch(err){alert('格式错误！');} }; r.readAsText(f); };
+
+        const deleteContact = (uid) => {
+            if(!confirm("确定移除该联系人？其相关聊天记录将保留在本地。")) return;
+            const tx = db.transaction('contacts', 'readwrite'); 
+            tx.objectStore('contacts').delete(uid);
+            tx.oncomplete = () => renderUI();
+        };
 
         const switchTab = (tabId, element) => {
             ['msgs', 'contacts', 'requests', 'profile'].forEach(id => document.getElementById(`tab-${id}`).classList.add('hidden'));
@@ -347,12 +363,20 @@
                     return; 
                 }
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
-                const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj);
                 const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
                 showPushNotification(contact ? contact.nick : d.from, msg.t === 'text' ? msg.c : '[媒体消息]');
 
-                if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { appendDOM(obj); boxScroll(); socket.emit('msg_read', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
-                else { unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderUI(); socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); }
+                if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { 
+                    obj.status = 2;
+                    const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj); 
+                    appendDOM(obj); boxScroll(); 
+                    socket.emit('msg_read', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
+                } else { 
+                    const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').add(obj); 
+                    unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; 
+                    renderUI(); 
+                    socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
+                }
             } catch(e) {}
         };
 
@@ -361,10 +385,10 @@
             const listM = document.getElementById('msg-list'); listM.innerHTML = '';
             const contacts = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').getAll(); req.onsuccess = () => r(req.result); });
             let totalUnread = 0;
-            if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无会话</div>'; }
+            if(contacts.length === 0) { listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无联系人数据</div>'; }
             contacts.forEach(c => {
                 const isOnline = onlineUsers.has(c.uid); const unread = unreadMap[c.uid] || 0; totalUnread += unread;
-                const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;margin:0;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button></div>`;
+                const html = `<div><span style="font-weight:bold;">${c.nick}</span> <span style="font-size:11px;color:#94a3b8;">(${c.uid})</span><br><span style="font-size:11px;color:${isOnline?'var(--success)':'var(--danger)'}">${isOnline?'● 在线':'● 离线'}</span></div>${unread?`<div class="badge" style="position:static;">${unread > 99 ? '99+' : unread}</div>`:''}<div class="flex"><button class="secondary" style="width:auto;padding:5px 15px;margin:0;" onclick="openChat('${c.uid}','${c.nick}','${c.pub}')">聊天</button><button class="danger" style="width:auto;padding:5px 10px;margin:0;" onclick="deleteContact('${c.uid}')">×</button></div>`;
                 const divC = document.createElement('div'); divC.className = 'list-item'; divC.innerHTML = html; listC.appendChild(divC);
                 const divM = document.createElement('div'); divM.className = 'list-item'; divM.innerHTML = html; listM.appendChild(divM);
             });
@@ -417,6 +441,19 @@
             unreadMap[uid] = 0; lastLoadedTs = 0; isEnd = false;
             document.getElementById('app-layout').classList.add('hidden'); document.getElementById('chat-view').classList.remove('hidden');
             document.getElementById('chat-target-name').innerText = name; updateStatusUI(); document.getElementById('chat-box').innerHTML = '';
+            
+            const tx = db.transaction('messages', 'readwrite');
+            const store = tx.objectStore('messages');
+            store.index('contact').openCursor(IDBKeyRange.only(uid)).onsuccess = e => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.type === 'other' && cursor.value.status === 0) {
+                        const updateData = cursor.value; updateData.status = 2; store.put(updateData);
+                    }
+                    cursor.continue();
+                }
+            };
+
             const msgs = await loadMore(uid); msgs.forEach(m => appendDOM(m)); boxScroll();
             msgs.forEach(m => { if(m.type === 'other') socket.emit('msg_read', { from: currentUid, token: currentToken, to: uid, msgId: m.msgId }); });
             renderUI();
@@ -424,12 +461,18 @@
 
         const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
         
+        let currentAudio = null;
+        const playAudio = (src) => {
+            if(currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; }
+            currentAudio = new Audio(src); currentAudio.play();
+        };
+
         const appendDOM = (m) => {
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
             let html = '';
             if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
             else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
-            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🎵 语音 (点击播放)</div>`;
             else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
@@ -440,7 +483,7 @@
             let html = '';
             if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
             else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
-            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="new Audio('${m.content}').play()">🎵 语音 (点击播放)</div>`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🎵 语音 (点击播放)</div>`;
             else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
@@ -512,11 +555,8 @@
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
         const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
-        // 核心修复1：在线状态硬拦截与纯净 JSON 序列化
         const startCall = async () => {
-            // 如果对方掉线或息屏，直接拦截拨打，不让你干等
             if(!onlineUsers.has(currentTargetUid)) return alert("对方当前不在线或已锁屏，无法接通！");
-            
             try {
                 localStream = await getMicrophoneAccess(); 
                 document.getElementById('webrtc-view').classList.remove('hidden'); 
@@ -529,7 +569,6 @@
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => {
                     if(e.candidate) {
-                        // 强制解构对象，防止被 Socket.io 吞噬
                         socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
                     }
                 };
@@ -537,7 +576,6 @@
                 
                 const offer = await peerConnection.createOffer(); 
                 await peerConnection.setLocalDescription(offer);
-                // 强制剥离出纯文本发送，彻底根除静默崩溃
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
             } catch(e) { console.log("拨打被安全阻断"); }
         };
@@ -550,15 +588,12 @@
                     const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
                     const callerName = contact ? contact.nick : d.from;
                     
-                    // 核心修复2：对方收到请求时，触发系统级 Push 通知，防止看不到
                     showPushNotification("来电提醒", `${callerName} 邀请您语音通话`);
                     document.getElementById('call-target-display-name').innerText = callerName;
-                    document.getElementById('webrtc-view').classList.remove('hidden'); 
-                    document.getElementById('call-tools').classList.add('hidden'); 
-                    document.getElementById('incoming-tools').classList.remove('hidden'); 
-                    document.getElementById('call-status').innerText = "邀请您进行语音通话...";
+                    document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请您进行语音通话...";
                     
                     peerConnection = new RTCPeerConnection(STUN);
+                    iceCandidateQueue = [];
                     peerConnection.onicecandidate = e => {
                         if(e.candidate) {
                             socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } });
@@ -568,16 +603,11 @@
                     
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     activeCallTarget = d.from;
-                    
-                    while(iceCandidateQueue.length > 0) { 
-                        peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); 
-                    }
+                    while(iceCandidateQueue.length > 0) { peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); }
                 } else if(d.type === 'answer') { 
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     document.getElementById('call-status').innerText = "通话中"; 
-                    while(iceCandidateQueue.length > 0) { 
-                        peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); 
-                    }
+                    while(iceCandidateQueue.length > 0) { peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{}); }
                 } else if(d.type === 'ice') { 
                     if (peerConnection && peerConnection.remoteDescription) {
                         peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{});
@@ -601,9 +631,7 @@
                 const ans = await peerConnection.createAnswer(); 
                 await peerConnection.setLocalDescription(ans); 
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: { type: ans.type, sdp: ans.sdp } });
-                document.getElementById('incoming-tools').classList.add('hidden'); 
-                document.getElementById('call-tools').classList.remove('hidden'); 
-                document.getElementById('call-status').innerText = "通话中";
+                document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
             } catch(e) { 
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' });
                 endCallLocal(); 
