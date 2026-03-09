@@ -122,14 +122,13 @@ def update_profile():
 @socketio.on('register_socket')
 def handle_register(data):
     uid, token = data.get('uid'), data.get('token')
-    # 增加 Token 哨兵：如果验证失败，直接通知手机端弹出重登提示，绝不静默装死
     if uid and auth_tokens.get(uid) == token:
         connected_users[uid] = request.sid
         emit('online_users', {'users': list(connected_users.keys())}, to=request.sid)
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
         
         conn = get_db()
-        expire_time_ms = int((time.time() - 604800) * 1000)
+        expire_time_ms = (time.time() - 604800) * 1000
         conn.execute('DELETE FROM offline_msgs WHERE timestamp < ?', (expire_time_ms,))
         
         offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
@@ -140,7 +139,6 @@ def handle_register(data):
         conn.commit()
         conn.close()
     else: 
-        emit('auth_error', {'error': 'token_invalid'}, to=request.sid)
         disconnect()
 
 @socketio.on('disconnect')
@@ -155,7 +153,7 @@ def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
     
-    now_ms = int(time.time() * 1000)
+    now_ms = time.time() * 1000
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
     else:
@@ -187,7 +185,7 @@ def handle_fetch_requests(data):
     conn.commit()
     reqs = conn.execute('SELECT id, from_uid, payload, timestamp FROM friend_requests WHERE to_uid = ? ORDER BY timestamp DESC', (uid,)).fetchall()
     conn.close()
-    emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': int(r['timestamp'] * 1000)} for r in reqs], to=request.sid)
+    emit('friend_requests_data', [{'id': r['id'], 'from': r['from_uid'], 'payload': r['payload'], 'ts': r['timestamp'] * 1000} for r in reqs], to=request.sid)
 
 @socketio.on('resolve_friend_request')
 def handle_resolve_request(data):
