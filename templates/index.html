@@ -53,7 +53,6 @@
         #chat-input-area input { margin: 0; flex: 1; }
         #send-btn { width: auto; padding: 0 15px; margin: 0; height: 42px;}
         .clip-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; margin: 0; flex-shrink: 0; background: var(--secondary); display: flex; align-items: center; justify-content: center;}
-        .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
         .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
         #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
         #webrtc-view { position: fixed; inset: 0; background: #0f172a; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -103,15 +102,11 @@
                     <li style="margin-bottom: 6px;"><b style="color: #fff;">全量备份包：</b>准备换手机、清理手机垃圾、或关闭无痕浏览器前，必须进入底部的【⚙️ 我的】 -> 点击【💾 导出本地加密数据包】。</li>
                     <li><b>恢复：</b>在登录界面点击【📂 导入恢复包】，选择全量备份包恢复。</li>
                 </ul>
-                <h4 style="color: var(--primary); margin-bottom: 8px;">📞 实时语音通话说明</h4>
-                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
-                    <li style="margin-bottom: 6px;">双方必须在线开着网页才能接通。</li>
-                    <li>通话采用极致加密与环境降噪优化，彻底保护隐私。</li>
-                </ul>
             </div>
             <button class="success" style="margin-top: 25px; height: 48px; font-size: 16px;" onclick="document.getElementById('guide-modal').classList.add('hidden')">✅ 我已牢记</button>
         </div>
     </div>
+    
     <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
             <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
@@ -121,6 +116,7 @@
             <button class="secondary" onclick="closeUidModal()">稍后自己备份，直接登录</button>
         </div>
     </div>
+
     <div id="auth-view" class="container">
         <div class="panel">
             <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>Zeno</h2><p style="color: var(--text-muted); font-size: 13px;">安全 · 私密 · 无痕</p></div>
@@ -136,6 +132,7 @@
             <button style="margin-top: 15px; background: transparent; border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 新手必读：防丢说明书</button>
         </div>
     </div>
+
     <div id="app-layout" class="hidden">
         <div class="content-area">
             <div id="tab-msgs"><h2 style="margin-top:0;">会话</h2><div id="msg-list"></div></div>
@@ -164,13 +161,14 @@
             <div class="nav-item" onclick="switchTab('profile', this)"><span class="nav-icon">⚙️</span><span>我的</span></div>
         </div>
     </div>
+
     <div id="chat-view" class="hidden">
         <div class="header-bar">
             <div><strong id="chat-target-name"></strong><br><span id="chat-target-status" style="font-size:11px;"></span></div>
             <div class="flex">
                 <button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button>
                 <button class="secondary" style="width:auto; padding:5px 8px; margin:0; font-size:13px;" onclick="clearChat()">🧹清屏</button>
-                <button class="danger" style="width:auto; padding:5px 8px; margin:0; font-size:13px;" onclick="nukeChat()">🔥撤回</button>
+                <button class="danger" style="width:auto; padding:5px 8px; margin:0; font-size:13px;" onclick="nukeChat()">🔥全撤回</button>
                 <button class="secondary" style="width:auto; padding:5px 12px; margin:0; font-size:13px;" onclick="closeChat()">返回</button>
             </div>
         </div>
@@ -182,6 +180,7 @@
             <button id="send-btn" onclick="sendMessage()">发送</button>
         </div>
     </div>
+
     <div id="webrtc-view" class="hidden">
         <audio id="remote-audio" autoplay playsinline></audio>
         <div class="call-avatar">👤</div>
@@ -190,10 +189,12 @@
         <div class="call-tools" id="call-tools"><button class="danger circle-btn" onclick="endCall()">☎</button></div>
         <div class="call-tools hidden" id="incoming-tools"><button class="danger circle-btn" onclick="endCall()">☎</button><button class="success circle-btn" onclick="acceptCall()">📞</button></div>
     </div>
+
     <script>
         let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream, wakeLock = null;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, activeCallTarget = null, iceCandidateQueue = [], callTimeout = null;
-        const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }] };
+        const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }] };
+        
         const safeBuf2B64 = (b) => { const x = new Uint8Array(b); let r = ''; for(let i=0; i<x.byteLength; i+=8192) r+=String.fromCharCode.apply(null, x.subarray(i, i+8192)); return btoa(r); };
         const safeB642Buf = (s) => { const x = atob(s); const l = x.length; const r = new Uint8Array(l); for(let i=0; i<l; i++) r[i]=x.charCodeAt(i); return r.buffer; };
         
@@ -215,7 +216,7 @@
             if (!navigator.mediaDevices) navigator.mediaDevices = {};
             if (!navigator.mediaDevices.getUserMedia) navigator.mediaDevices.getUserMedia = (c) => new Promise((r, j) => (navigator.webkitGetUserMedia || navigator.mozGetUserMedia).call(navigator, c, r, j));
             try { return await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }); } 
-            catch (e) { alert("设备连接失败！\n请检查麦克风权限或确保在 HTTPS 环境下运行。"); throw e; }
+            catch (e) { alert("设备连接失败，请检查麦克风权限！"); throw e; }
         };
 
         const requestNotifyPermission = () => { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); };
@@ -348,11 +349,14 @@
             try {
                 const keys = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
                 const msg = JSON.parse(await cryptoOp.dec(d.payload, keys.priv));
+                
                 if(msg.t === 'sys_accept') {
                     const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: d.from }) }).then(r=>r.json());
                     if(res.status === 'ok') { db.transaction('contacts', 'readwrite').objectStore('contacts').put({ uid: res.uid, nick: res.nickname, pub: res.public_key }); showPushNotification("系统", `${res.nickname} 已通过请求`); renderUI(); }
                     return; 
                 }
+                
+                // 处理全局静默撤回 (消除alert阻塞)
                 if(msg.t === 'sys_nuke') {
                     const tx = db.transaction('messages', 'readwrite'); 
                     tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => { 
@@ -360,28 +364,34 @@
                         if(cursor){ 
                             if(cursor.value.type === 'other') { cursor.delete(); } 
                             cursor.continue(); 
-                        } 
-                        else if(currentTargetUid === d.from) { 
+                        } else if(currentTargetUid === d.from) { 
                             openChat(currentTargetUid, currentTargetName, targetPublicKeyStr);
-                            alert("对方双向撤回了TA发送的所有消息"); 
+                            showPushNotification("系统通知", "对方撤回了发给您的所有消息"); 
                         }
                     };
                     return;
                 }
+                
+                // 处理单条静默撤回 (消除alert阻塞)
                 if(msg.t === 'sys_recall') {
                     const tx = db.transaction('messages', 'readwrite');
                     tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => {
                         const cursor = e.target.result;
                         if(cursor) {
-                            if(cursor.value.msgId === msg.c) { cursor.delete(); const el = document.getElementById(`msg-elem-${msg.c}`); if(el) el.remove(); } 
-                            else { cursor.continue(); }
+                            if(cursor.value.msgId === msg.c) { 
+                                cursor.delete(); 
+                                const el = document.getElementById(`msg-elem-${msg.c}`); 
+                                if(el) el.remove(); 
+                            } else { cursor.continue(); }
                         }
                     };
                     return;
                 }
+                
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
                 const c = await new Promise(r => db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => r(e.target.result));
                 showPushNotification(c ? c.nick : d.from, msg.t === 'text' ? msg.c : '[文件]');
+                
                 if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { 
                     obj.status = 2; db.transaction('messages', 'readwrite').objectStore('messages').add(obj); appendDOM(obj); boxScroll(); socket.emit('msg_read', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
                 } else { 
@@ -444,19 +454,24 @@
 
         const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
 
+        // 发送方：单条静默撤回引擎
         const recallSingleMsg = async (msgId) => {
-            if(!confirm("确定要撤回这条消息吗？对方设备上的记录也会被销毁。")) return;
+            if(!confirm("确定撤回这条消息吗？对方设备上的记录也会被物理销毁。")) return;
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_recall', c: msgId }), targetPublicKeyStr) });
             const tx = db.transaction('messages', 'readwrite');
             tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => {
                 const cursor = e.target.result;
                 if(cursor) {
-                    if(cursor.value.msgId === msgId) { cursor.delete(); const el = document.getElementById(`msg-elem-${msgId}`); if(el) el.remove(); } 
-                    else { cursor.continue(); }
+                    if(cursor.value.msgId === msgId) { 
+                        cursor.delete(); 
+                        const el = document.getElementById(`msg-elem-${msgId}`); 
+                        if(el) el.remove(); 
+                    } else { cursor.continue(); }
                 }
             };
         };
 
+        // UI 渲染：加入撤回按钮与 msgId 锚点
         const createDOM = (m) => {
             const r = document.createElement('div'); r.className = `msg-row ${m.type}`; r.id = `msg-elem-${m.msgId}`;
             let h = m.mType === 'text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType === 'image' ? `<img src="${m.content}" style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.3);">` : `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`);
@@ -486,7 +501,7 @@
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         
-        // 扫帚按钮功能：单方面清空自己手机屏幕
+        // 扫帚按钮：清空本地
         const clearChat = () => { 
             if(confirm("🧹 只清空您手机上的本地聊天记录？\n（对方手机里的消息不会受到任何影响）")) { 
                 const tx = db.transaction('messages', 'readwrite'); 
@@ -498,7 +513,7 @@
             } 
         };
 
-        // 火焰按钮功能：双向抹除我发送的全部
+        // 火焰按钮：双向全撤回
         const nukeChat = async () => { 
             if(confirm("🔥 警告：将双向销毁您发送的所有消息！\n\n双方设备中由您发出的消息将被物理粉碎（对方发给您的消息将保留）。确定执行？")) { 
                 socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_nuke', c: 'nuke' }), targetPublicKeyStr) });
@@ -510,7 +525,6 @@
                         cursor.continue(); 
                     } else { 
                         openChat(currentTargetUid, currentTargetName, targetPublicKeyStr);
-                        alert("💥 您发送的消息已从双方设备中彻底抹除！"); 
                     } 
                 }; 
             } 
