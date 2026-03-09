@@ -69,7 +69,7 @@
     </style>
 </head>
 <body>
-    <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
+    <div id="network-bar" class="hidden">⚠ 连接已断开，正在尝试重连网络...</div>
     
     <div id="lock-screen" class="hidden" style="position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
         <div style="font-size: 50px; margin-bottom: 20px;">🔒</div>
@@ -219,8 +219,9 @@
             catch (e) { alert("设备连接失败，请检查麦克风权限！"); throw e; }
         };
 
-        const requestNotifyPermission = () => { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); };
-        const showPushNotification = (n, t) => { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${n}`, { body: t, icon: '🛡️' }); };
+        // 核心修复1：防错罩，杜绝手机系统拒绝通知权限时导致程序崩溃死机
+        const requestNotifyPermission = () => { try { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); } catch(e) {} };
+        const showPushNotification = (n, t) => { try { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${n}`, { body: t, icon: '🛡️' }); } catch(e) {} };
 
         const initDB = () => new Promise(r => {
             const req = indexedDB.open('SecureChatDB', 8);
@@ -319,13 +320,19 @@
         };
 
         const initSocket = () => {
-            socket = io({ transports: ['websocket'], reconnectionAttempts: 20 });
+            // 核心修复2：移除强制websocket，让移动网络可智能降级，彻底解决连不上或断流
+            socket = io({ reconnectionAttempts: 20 });
             socket.on('connect', () => { document.getElementById('network-bar').classList.add('hidden'); socket.emit('register_socket', { uid: currentUid, token: currentToken }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken});});
             socket.on('disconnect', () => document.getElementById('network-bar').classList.remove('hidden'));
             socket.on('online_users', d => { d.users.forEach(u => onlineUsers.add(u)); renderUI(); });
             socket.on('user_status', d => { d.status === 'online' ? onlineUsers.add(d.uid) : onlineUsers.delete(d.uid); renderUI(); if(currentTargetUid===d.uid) updateStatusUI(); });
             socket.on('receive_message', async d => processMsg(d));
-            socket.on('offline_sync', ds => ds.forEach(d => processMsg(d)));
+            
+            // 核心修复3：将离线消息同步改为严格串行队列，杜绝手机浏览器高并发下的数据库死锁崩溃
+            socket.on('offline_sync', async ds => {
+                for (let d of ds) { await processMsg(d); }
+            });
+            
             socket.on('msg_ack', d => updateTick(d.msgId, 1));
             socket.on('msg_read', d => updateTick(d.msgId, 2));
             socket.on('webrtc_signal', handleSignal);
@@ -356,7 +363,6 @@
                     return; 
                 }
                 
-                // 处理全局静默撤回 (消除alert阻塞)
                 if(msg.t === 'sys_nuke') {
                     const tx = db.transaction('messages', 'readwrite'); 
                     tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => { 
@@ -372,7 +378,6 @@
                     return;
                 }
                 
-                // 处理单条静默撤回 (消除alert阻塞)
                 if(msg.t === 'sys_recall') {
                     const tx = db.transaction('messages', 'readwrite');
                     tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => {
@@ -397,7 +402,7 @@
                 } else { 
                     db.transaction('messages', 'readwrite').objectStore('messages').add(obj); unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderUI(); socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
                 }
-            } catch(e) {}
+            } catch(e) { console.error("消息解析拦截:", e); }
         };
 
         const renderUI = async () => {
@@ -454,7 +459,6 @@
 
         const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
 
-        // 发送方：单条静默撤回引擎
         const recallSingleMsg = async (msgId) => {
             if(!confirm("确定撤回这条消息吗？对方设备上的记录也会被物理销毁。")) return;
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_recall', c: msgId }), targetPublicKeyStr) });
@@ -471,7 +475,6 @@
             };
         };
 
-        // UI 渲染：加入撤回按钮与 msgId 锚点
         const createDOM = (m) => {
             const r = document.createElement('div'); r.className = `msg-row ${m.type}`; r.id = `msg-elem-${m.msgId}`;
             let h = m.mType === 'text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType === 'image' ? `<img src="${m.content}" style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.3);">` : `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`);
@@ -501,7 +504,6 @@
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         
-        // 扫帚按钮：清空本地
         const clearChat = () => { 
             if(confirm("🧹 只清空您手机上的本地聊天记录？\n（对方手机里的消息不会受到任何影响）")) { 
                 const tx = db.transaction('messages', 'readwrite'); 
@@ -513,7 +515,6 @@
             } 
         };
 
-        // 火焰按钮：双向全撤回
         const nukeChat = async () => { 
             if(confirm("🔥 警告：将双向销毁您发送的所有消息！\n\n双方设备中由您发出的消息将被物理粉碎（对方发给您的消息将保留）。确定执行？")) { 
                 socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_nuke', c: 'nuke' }), targetPublicKeyStr) });
