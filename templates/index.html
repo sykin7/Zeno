@@ -68,28 +68,20 @@
 </head>
 <body>
     <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
-    <div id="guide-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div class="panel" style="width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto; text-align: left; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
-            <h2 style="color: var(--primary); margin-top: 0; text-align: center; font-size: 22px;">📖 Zeno 防丢与使用手册</h2>
-            <div style="color: var(--text); font-size: 14px; line-height: 1.7;">
-                <div style="background: rgba(239, 68, 68, 0.1); padding: 12px; border-left: 4px solid var(--danger); border-radius: 4px; margin-bottom: 15px;">
-                    <h4 style="color: var(--danger); margin: 0 0 8px 0;">⚠️ 核心警告：阅后即焚</h4>
-                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器不存您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。如果您清除了浏览器缓存，数据将彻底销毁。</p>
-                </div>
-                <h4 style="color: var(--success); margin-bottom: 8px;">💾 正确的数据备份姿势</h4>
-                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
-                    <li style="margin-bottom: 6px;"><b>初始备份包：</b>刚注册时下载的备份包，里面只有身份数据。</li>
-                    <li style="margin-bottom: 6px;"><b style="color: #fff;">全量备份包：</b>准备换手机、清理手机垃圾、或关闭无痕浏览器前，必须进入底部的【⚙️ 我的】 -> 点击【💾 导出本地加密数据包】。</li>
-                    <li><b>恢复：</b>在登录界面点击【📂 导入恢复包】，选择全量备份包恢复。</li>
-                </ul>
-                <h4 style="color: var(--primary); margin-bottom: 8px;">📞 实时语音通话说明</h4>
-                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
-                    <li style="margin-bottom: 6px;">双方必须在线开着网页才能接通。</li>
-                    <li>通话采用极致加密与环境降噪优化，彻底保护隐私。</li>
-                </ul>
-            </div>
-            <button class="success" style="margin-top: 25px; height: 48px; font-size: 16px;" onclick="document.getElementById('guide-modal').classList.add('hidden')">✅ 我已牢记</button>
+    <div id="lock-screen" class="hidden" style="position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
+        <div style="font-size: 50px; margin-bottom: 20px;">🔒</div>
+        <h2 style="color: white; margin-top: 0;">Zeno 已安全锁定</h2>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 30px;">检测到您长时间未操作，为保护隐私已锁定。</p>
+        <div style="width: 100%; max-width: 300px;">
+            <input type="password" id="unlock-password" placeholder="请输入本账号的安全密码">
+            <button class="success" onclick="unlockZeno()" style="height: 48px; margin-top: 15px;">解 锁</button>
+            <button class="danger" onclick="logout()" style="height: 48px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">安全退出</button>
         </div>
+    </div>
+    <div id="upload-mask" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 99999; display: flex; align-items: center; justify-content: center; flex-direction: column; color: var(--success); font-weight: bold;">
+        <div style="border: 4px solid rgba(255,255,255,0.1); border-left-color: var(--success); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
+        <div>🔐 正在高强度加密并发送中...</div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
     </div>
     <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
@@ -112,7 +104,6 @@
                 <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
                 <input type="file" id="import-file" class="hidden" onchange="importData(event)">
             </div>
-            <button style="margin-top: 15px; background: transparent; border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 新手必读：防丢说明书</button>
         </div>
     </div>
     <div id="app-layout" class="hidden">
@@ -130,7 +121,6 @@
                 <div class="profile-card"><div style="color:var(--text-muted); font-size:14px;">我的专属 UID</div><div class="profile-uid" id="profile-uid-show"></div><div style="font-size:20px; font-weight:bold; margin-bottom: 5px;" id="profile-name-show"></div></div>
                 <h4 style="color:var(--text-muted);">资料与帮助</h4>
                 <div class="flex"><input type="text" id="settings-nickname" placeholder="修改昵称" style="margin:0;"><button onclick="saveProfile()" style="width: 100px; margin:0;">更新</button></div>
-                <button style="margin-top: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 查看安全与防丢说明书</button>
                 <h4 style="color:var(--text-muted); margin-top: 30px;">数据安全管理</h4>
                 <button class="success" onclick="exportData(currentUid)">💾 离线前必备：导出完整数据包</button>
                 <button class="danger" onclick="logout()" style="margin-top: 15px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">🚪 退出当前账号</button>
@@ -178,13 +168,12 @@
             if (!navigator.mediaDevices) navigator.mediaDevices = {};
             if (!navigator.mediaDevices.getUserMedia) navigator.mediaDevices.getUserMedia = (c) => new Promise((r, j) => (navigator.webkitGetUserMedia || navigator.mozGetUserMedia).call(navigator, c, r, j));
             try { return await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }); } 
-            catch (e) { throw e; } // 抛出真实错误给调用者处理
+            catch (e) { throw e; }
         };
 
         const requestNotifyPermission = () => { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); };
         const showPushNotification = (n, t) => { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${n}`, { body: t, icon: '🛡️' }); };
 
-        // [修复 1] 数据库拦截排障，无痕模式不再“点击没反应”
         const initDB = () => new Promise(r => {
             try {
                 const req = indexedDB.open('SecureChatDB', 8);
@@ -223,9 +212,10 @@
             unreadMap = {}; m.forEach(x => { if (x.type === 'other' && x.status === 0) unreadMap[x.contact] = (unreadMap[x.contact] || 0) + 1; });
         };
 
+        // 修复1：注册防假死雷达
         const register = async () => {
             try {
-                if(!db) return alert('【致命错误】您的浏览器禁用了本地数据库（可能因开启了无痕模式）。请关闭无痕模式后重试！');
+                if(!db) return alert('【错误】您的浏览器（或无痕模式）禁用了本地数据库，无法生成和保存私钥！请退出无痕模式或在设置中允许。');
                 const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
                 const n = prompt("请输入您的专属昵称："); if(!n || n.trim() === '') return;
                 const k = await cryptoOp.gen();
@@ -241,9 +231,10 @@
         const downloadBackupAndLogin = async () => { await exportData(document.getElementById('new-uid-display').innerText); closeUidModal(); };
         const closeUidModal = () => document.getElementById('uid-modal').classList.add('hidden');
 
+        // 修复2：登录防假死雷达
         const login = async () => {
             try {
-                if(!db) return alert('【致命错误】您的浏览器禁用了本地数据库（可能因开启了无痕模式），无法读取私钥，请关闭无痕模式重试！');
+                if(!db) return alert('【错误】您的浏览器（或无痕模式）禁用了本地数据库，无法读取您的私钥！请退出无痕模式后重试。');
                 const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
                 if(!u || !p) return alert('请输入 UID 和密码');
                 const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
@@ -423,12 +414,11 @@
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         const clearChat = () => { if(confirm("清空？")) { db.transaction('messages', 'readwrite').objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } else document.getElementById('chat-box').innerHTML = ''; }; } };
 
-        // [核心修复 2]：主叫方一发起，马上锁定目标，防空指针
         const startCall = async () => {
             if(!onlineUsers.has(currentTargetUid)) return alert("对方离线");
             try {
-                activeCallTarget = currentTargetUid; 
                 localStream = await getMicrophoneAccess(); await acquireWakeLock();
+                activeCallTarget = currentTargetUid;
                 document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "呼叫中..."; document.getElementById('call-target-display-name').innerText = currentTargetName;
                 peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = []; 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
@@ -437,24 +427,32 @@
                 const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
                 clearTimeout(callTimeout); callTimeout = setTimeout(() => { alert("无响应"); endCallLocal(); }, 10000);
-            } catch(e) { alert("呼叫异常: " + e.message); endCallLocal(); }
+            } catch(e) { endCallLocal(); }
         };
         
         const handleSignal = async (d) => {
             try {
                 if(d.type === 'offer') {
-                    // [核心修复 1]：收到来电，第一毫秒就锁定对方 ID。防止后续接听崩溃导致挂断信号丢失。
+                    // [修复 3] 瞬间锁死目标，保证崩溃时也能准确挂断
                     activeCallTarget = d.from;
-
+                    
                     if(!document.getElementById('webrtc-view').classList.contains('hidden')) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
                     socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ringing' });
-                    db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => { const cn = e.target.result ? e.target.result.nick : d.from; document.getElementById('call-target-display-name').innerText = cn; showPushNotification("来电", cn); };
-                    document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-tools').classList.add('hidden'); document.getElementById('incoming-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "邀请通话...";
+                    try { db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => { const cn = e.target.result ? e.target.result.nick : d.from; document.getElementById('call-target-display-name').innerText = cn; showPushNotification("来电", cn); }; } catch(e) {}
+                    
                     peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = [];
                     peerConnection.onicecandidate = e => { if(e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } }); };
                     peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
+                    
+                    // [修复 4] 必须等底层通道 100% 建好
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     while(iceCandidateQueue.length > 0) peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{});
+                    
+                    // [修复 5] 通道建好了，最后才展示接听界面，杜绝手快抢跑引发的闪退
+                    document.getElementById('webrtc-view').classList.remove('hidden'); 
+                    document.getElementById('call-tools').classList.add('hidden'); 
+                    document.getElementById('incoming-tools').classList.remove('hidden'); 
+                    document.getElementById('call-status').innerText = "邀请通话...";
                 } else if(d.type === 'ringing') {
                     clearTimeout(callTimeout); document.getElementById('call-status').innerText = "响铃中..."; callTimeout = setTimeout(() => { alert("无人接听"); endCallLocal(); }, 30000);
                 } else if(d.type === 'answer') {
@@ -471,16 +469,9 @@
         const acceptCall = async () => {
             try {
                 localStream = await getMicrophoneAccess(); await acquireWakeLock(); localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
-                
-                // [核心修复 3]：防手速过快死锁。必须等通道建好，否则 createAnswer() 必报错导致闪退！
-                while(peerConnection && !peerConnection.remoteDescription) { await new Promise(r => setTimeout(r, 50)); }
-
                 const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: { type: ans.type, sdp: ans.sdp } });
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
-            } catch(e) { 
-                alert("接听异常: " + e.message); 
-                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' }); endCallLocal(); 
-            }
+            } catch(e) { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' }); endCallLocal(); }
         };
 
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
