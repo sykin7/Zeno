@@ -63,7 +63,7 @@
         .call-tools { display: flex; gap: 40px; }
         .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; margin: 0;}
         .tick-read { color: var(--success); font-weight: bold; }
-        .flex { display: flex; gap: 10px;}
+        .flex { display: flex; gap: 8px;}
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -167,7 +167,12 @@
     <div id="chat-view" class="hidden">
         <div class="header-bar">
             <div><strong id="chat-target-name"></strong><br><span id="chat-target-status" style="font-size:11px;"></span></div>
-            <div class="flex"><button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button><button class="danger" style="width:auto; padding:5px 10px; margin:0;" onclick="nukeChat()">🔥毁灭</button><button class="secondary" style="width:auto; padding:5px 15px; margin:0;" onclick="closeChat()">返回</button></div>
+            <div class="flex">
+                <button class="success" style="width:40px; height:40px; border-radius:50%; padding:0; margin:0;" onclick="startCall()">📞</button>
+                <button class="secondary" style="width:auto; padding:5px 8px; margin:0; font-size:13px;" onclick="clearChat()">🧹清屏</button>
+                <button class="danger" style="width:auto; padding:5px 8px; margin:0; font-size:13px;" onclick="nukeChat()">🔥撤回</button>
+                <button class="secondary" style="width:auto; padding:5px 12px; margin:0; font-size:13px;" onclick="closeChat()">返回</button>
+            </div>
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
@@ -350,10 +355,27 @@
                 }
                 if(msg.t === 'sys_nuke') {
                     const tx = db.transaction('messages', 'readwrite'); 
-                    tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(d.from)).onsuccess = e => { 
-                        const c = e.target.result; 
-                        if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } 
-                        else if(currentTargetUid === d.from) { document.getElementById('chat-box').innerHTML = ''; alert("💥 对方执行了双向核爆，此会话已被彻底销毁！"); }
+                    tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => { 
+                        const cursor = e.target.result; 
+                        if(cursor){ 
+                            if(cursor.value.type === 'other') { cursor.delete(); } 
+                            cursor.continue(); 
+                        } 
+                        else if(currentTargetUid === d.from) { 
+                            openChat(currentTargetUid, currentTargetName, targetPublicKeyStr);
+                            alert("对方双向撤回了TA发送的所有消息"); 
+                        }
+                    };
+                    return;
+                }
+                if(msg.t === 'sys_recall') {
+                    const tx = db.transaction('messages', 'readwrite');
+                    tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(d.from)).onsuccess = e => {
+                        const cursor = e.target.result;
+                        if(cursor) {
+                            if(cursor.value.msgId === msg.c) { cursor.delete(); const el = document.getElementById(`msg-elem-${msg.c}`); if(el) el.remove(); } 
+                            else { cursor.continue(); }
+                        }
                     };
                     return;
                 }
@@ -422,10 +444,23 @@
 
         const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
 
+        const recallSingleMsg = async (msgId) => {
+            if(!confirm("确定要撤回这条消息吗？对方设备上的记录也会被销毁。")) return;
+            socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_recall', c: msgId }), targetPublicKeyStr) });
+            const tx = db.transaction('messages', 'readwrite');
+            tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.msgId === msgId) { cursor.delete(); const el = document.getElementById(`msg-elem-${msgId}`); if(el) el.remove(); } 
+                    else { cursor.continue(); }
+                }
+            };
+        };
+
         const createDOM = (m) => {
-            const r = document.createElement('div'); r.className = `msg-row ${m.type}`;
-            let h = m.mType === 'text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType === 'image' ? `<img src="${m.content}" style="max-width:100%; border-radius:8px;">` : `<a href="${m.content}" download style="color:#fff;">📁 附件</a>`);
-            let tk = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status===2?'✓✓':(m.status===1?'✓✓':'✓')}</span>` : '';
+            const r = document.createElement('div'); r.className = `msg-row ${m.type}`; r.id = `msg-elem-${m.msgId}`;
+            let h = m.mType === 'text' ? m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])) : (m.mType === 'image' ? `<img src="${m.content}" style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.3);">` : `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`);
+            let tk = m.type === 'me' ? `<span style="margin-left:8px;cursor:pointer;color:var(--danger);" onclick="recallSingleMsg('${m.msgId}')">[撤回]</span><span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status===2?'✓✓':(m.status===1?'✓✓':'✓')}</span>` : '';
             r.innerHTML = `<div class="msg-bubble">${h}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tk}</div>`; return r;
         };
         const appendDOM = (m) => document.getElementById('chat-box').appendChild(createDOM(m));
@@ -451,14 +486,32 @@
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
         
-        const nukeChat = async () => { 
-            if(confirm("🔥 警告：此操作将双向毁灭！\n\n双方手机中属于此对话的所有记录都将被瞬间物理粉碎！确定执行核爆？")) { 
-                socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_nuke', c: 'nuke' }), targetPublicKeyStr) });
+        // 扫帚按钮功能：单方面清空自己手机屏幕
+        const clearChat = () => { 
+            if(confirm("🧹 只清空您手机上的本地聊天记录？\n（对方手机里的消息不会受到任何影响）")) { 
                 const tx = db.transaction('messages', 'readwrite'); 
                 tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { 
                     const c = e.target.result; 
                     if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } 
-                    else { document.getElementById('chat-box').innerHTML = ''; alert("💥 您的本地记录已粉碎，核爆信令已发出！"); } 
+                    else { document.getElementById('chat-box').innerHTML = ''; } 
+                }; 
+            } 
+        };
+
+        // 火焰按钮功能：双向抹除我发送的全部
+        const nukeChat = async () => { 
+            if(confirm("🔥 警告：将双向销毁您发送的所有消息！\n\n双方设备中由您发出的消息将被物理粉碎（对方发给您的消息将保留）。确定执行？")) { 
+                socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_nuke', c: 'nuke' }), targetPublicKeyStr) });
+                const tx = db.transaction('messages', 'readwrite'); 
+                tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { 
+                    const cursor = e.target.result; 
+                    if(cursor){ 
+                        if(cursor.value.type === 'me') { cursor.delete(); } 
+                        cursor.continue(); 
+                    } else { 
+                        openChat(currentTargetUid, currentTargetName, targetPublicKeyStr);
+                        alert("💥 您发送的消息已从双方设备中彻底抹除！"); 
+                    } 
                 }; 
             } 
         };
