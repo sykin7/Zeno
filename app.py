@@ -129,17 +129,12 @@ def handle_register(data):
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
         
         conn = get_db()
-        
-        # 核心优化：全站离线消息 7 天强制过期粉碎（防数据库膨胀）
-        # 604800 秒 = 7天，乘以 1000 转换为毫秒时间戳
         expire_time_ms = (time.time() - 604800) * 1000
         conn.execute('DELETE FROM offline_msgs WHERE timestamp < ?', (expire_time_ms,))
         
-        # 提取属于该用户的离线消息
         offline_msgs = conn.execute('SELECT from_uid, payload, timestamp FROM offline_msgs WHERE to_uid = ? ORDER BY timestamp ASC', (uid,)).fetchall()
         if offline_msgs:
             emit('offline_sync', [{'from': m['from_uid'], 'payload': m['payload'], 'timestamp': m['timestamp']} for m in offline_msgs], to=request.sid)
-            # 发送完毕后，精准销毁该用户的离线消息
             conn.execute('DELETE FROM offline_msgs WHERE to_uid = ?', (uid,))
             
         conn.commit()
