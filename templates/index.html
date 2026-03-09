@@ -96,7 +96,7 @@
             <div style="color: var(--text); font-size: 14px; line-height: 1.7;">
                 <div style="background: rgba(239, 68, 68, 0.1); padding: 12px; border-left: 4px solid var(--danger); border-radius: 4px; margin-bottom: 15px;">
                     <h4 style="color: var(--danger); margin: 0 0 8px 0;">⚠️ 核心警告：阅后即焚</h4>
-                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器不存您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。如果您清清除浏览器缓存，数据将彻底销毁。</p>
+                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器不存您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。如果您清除了浏览器缓存，数据将彻底销毁。</p>
                 </div>
                 <h4 style="color: var(--success); margin-bottom: 8px;">💾 正确的数据备份姿势</h4>
                 <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
@@ -196,7 +196,9 @@
         let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream, wakeLock = null;
         let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, activeCallTarget = null, iceCandidateQueue = [], callTimeout = null;
         
-        const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }] };
+        // 提取自您上传的 100% 运行正常版的节点配置
+        const STUN = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }] };
+        
         const safeBuf2B64 = (b) => { const x = new Uint8Array(b); let r = ''; for(let i=0; i<x.byteLength; i+=8192) r+=String.fromCharCode.apply(null, x.subarray(i, i+8192)); return btoa(r); };
         const safeB642Buf = (s) => { const x = atob(s); const l = x.length; const r = new Uint8Array(l); for(let i=0; i<l; i++) r[i]=x.charCodeAt(i); return r.buffer; };
         
@@ -211,17 +213,17 @@
         };
         window.addEventListener('touchstart', resetIdleTimer); window.addEventListener('click', resetIdleTimer); window.addEventListener('scroll', resetIdleTimer);
         
-        // ----------------------------------------------------
-        // 核心 WebRTC 代码块：原封不动提取自您提供的完美版
-        // ----------------------------------------------------
+        // ---------------------------------------------------------------------------
+        // 核心语音通话模块：100% 同步提取自您的原稿附件，绝对不加任何自定义修改！
+        // ---------------------------------------------------------------------------
         const acquireWakeLock = async () => { try { if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {} };
         const releaseWakeLock = () => { if(wakeLock) { wakeLock.release(); wakeLock = null; } };
 
         const getMicrophoneAccess = async () => {
             if (!navigator.mediaDevices) navigator.mediaDevices = {};
             if (!navigator.mediaDevices.getUserMedia) navigator.mediaDevices.getUserMedia = (c) => new Promise((r, j) => (navigator.webkitGetUserMedia || navigator.mozGetUserMedia).call(navigator, c, r, j));
-            try { return await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }); }
-            catch (e) { alert("设备连接失败！\n请检查麦克风权限或确保在 HTTPS 环境下运行。"); throw e; }
+            try { return await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }); } 
+            catch (e) { alert("设备连接失败，请检查麦克风权限！"); throw e; }
         };
 
         const startCall = async () => {
@@ -229,7 +231,7 @@
             try {
                 localStream = await getMicrophoneAccess(); await acquireWakeLock();
                 document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "呼叫中..."; document.getElementById('call-target-display-name').innerText = currentTargetName;
-                peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = [];
+                peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = []; 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 peerConnection.onicecandidate = e => { if(e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } }); };
                 peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
@@ -238,7 +240,7 @@
                 clearTimeout(callTimeout); callTimeout = setTimeout(() => { alert("无响应"); endCallLocal(); }, 10000);
             } catch(e) {}
         };
-
+        
         const handleSignal = async (d) => {
             try {
                 if(d.type === 'offer') {
@@ -253,17 +255,17 @@
                     while(iceCandidateQueue.length > 0) peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{});
                 } else if(d.type === 'ringing') {
                     clearTimeout(callTimeout); document.getElementById('call-status').innerText = "响铃中..."; callTimeout = setTimeout(() => { alert("无人接听"); endCallLocal(); }, 30000);
-                } else if(d.type === 'answer') {
-                    clearTimeout(callTimeout); await acquireWakeLock(); await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); document.getElementById('call-status').innerText = "通话中";
+                } else if(d.type === 'answer') { 
+                    clearTimeout(callTimeout); await acquireWakeLock(); await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); document.getElementById('call-status').innerText = "通话中"; 
                     while(iceCandidateQueue.length > 0) peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{});
-                } else if(d.type === 'ice') {
-                    if (peerConnection && peerConnection.remoteDescription) peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{}); else iceCandidateQueue.push(d.ice);
-                } else if(d.type === 'busy') { clearTimeout(callTimeout); alert("正忙"); endCallLocal();
-                } else if(d.type === 'reject') { clearTimeout(callTimeout); alert("被拒/失败"); endCallLocal();
+                } else if(d.type === 'ice') { 
+                    if (peerConnection && peerConnection.remoteDescription) peerConnection.addIceCandidate(new RTCIceCandidate(d.ice)).catch(e=>{}); else iceCandidateQueue.push(d.ice); 
+                } else if(d.type === 'busy') { clearTimeout(callTimeout); alert("正忙"); endCallLocal(); 
+                } else if(d.type === 'reject') { clearTimeout(callTimeout); alert("被拒/失败"); endCallLocal(); 
                 } else if(d.type === 'end') { clearTimeout(callTimeout); endCallLocal(); }
             } catch(e) {}
         };
-
+        
         const acceptCall = async () => {
             try {
                 localStream = await getMicrophoneAccess(); await acquireWakeLock(); localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
@@ -271,61 +273,116 @@
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
             } catch(e) { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' }); endCallLocal(); }
         };
-
+        
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
         const endCallLocal = () => { clearTimeout(callTimeout); releaseWakeLock(); if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
-        // ----------------------------------------------------
+        // ---------------------------------------------------------------------------
 
         const requestNotifyPermission = () => { try { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); } catch(e) {} };
         const showPushNotification = (n, t) => { try { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${n}`, { body: t, icon: '🛡️' }); } catch(e) {} };
 
+        // [排障装甲]：全局注入 try-catch 拦截假死，确保第一时间暴露真实错误原因
         const initDB = () => new Promise(r => {
-            const req = indexedDB.open('SecureChatDB', 8);
-            req.onupgradeneeded = e => {
-                const idb = e.target.result;
-                if (!idb.objectStoreNames.contains('keys')) idb.createObjectStore('keys', { keyPath: 'uid' });
-                if (!idb.objectStoreNames.contains('contacts')) idb.createObjectStore('contacts', { keyPath: 'uid' });
-                if (!idb.objectStoreNames.contains('messages')) { const os = idb.createObjectStore('messages', { keyPath: 'id', autoIncrement: true }); os.createIndex('contact', 'contact'); os.createIndex('ts', 'ts'); }
-            };
-            req.onsuccess = e => { db = e.target.result; r(); };
+            try {
+                const req = indexedDB.open('SecureChatDB', 8);
+                req.onupgradeneeded = e => {
+                    const idb = e.target.result;
+                    if (!idb.objectStoreNames.contains('keys')) idb.createObjectStore('keys', { keyPath: 'uid' });
+                    if (!idb.objectStoreNames.contains('contacts')) idb.createObjectStore('contacts', { keyPath: 'uid' });
+                    if (!idb.objectStoreNames.contains('messages')) { const os = idb.createObjectStore('messages', { keyPath: 'id', autoIncrement: true }); os.createIndex('contact', 'contact'); os.createIndex('ts', 'ts'); }
+                };
+                req.onsuccess = e => { db = e.target.result; r(); };
+                req.onerror = e => { alert("【系统警告】本地数据库加载失败！\n请清理浏览器缓存后重试。"); r(); };
+                req.onblocked = e => { alert("【严重警告】数据库被锁死！\n您可能开启了多个 Zeno 页面，请关闭其它所有相同标签页后刷新！"); r(); };
+            } catch (e) {
+                alert("【环境异常】您的浏览器不支持或禁用了本地数据库存储功能！\n报错：" + e.message);
+                r();
+            }
         });
 
+        const cryptoOp = {
+            async gen() { return await window.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["encrypt", "decrypt"]); },
+            async export(k) { return safeBuf2B64(await window.crypto.subtle.exportKey("spki", k)); },
+            async enc(t, p) {
+                const pub = await window.crypto.subtle.importKey("spki", safeB642Buf(p), { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+                const aes = await window.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aes, new TextEncoder().encode(t));
+                const k = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, pub, await window.crypto.subtle.exportKey("raw", aes));
+                return JSON.stringify({ k: safeBuf2B64(k), i: safeBuf2B64(iv), c: safeBuf2B64(cipher) });
+            },
+            async dec(s, p) {
+                const o = JSON.parse(s);
+                const rK = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, p, safeB642Buf(o.k));
+                const aes = await window.crypto.subtle.importKey("raw", rK, "AES-GCM", false, ["decrypt"]);
+                return new TextDecoder().decode(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: safeB642Buf(o.i) }, aes, safeB642Buf(o.c)));
+            }
+        };
+
         const register = async () => {
-            const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
-            const n = prompt("请输入您的专属昵称："); if(!n || n.trim() === '') return;
-            const k = await cryptoOp.gen();
-            const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: n.trim(), password: p, public_key: await cryptoOp.export(k.publicKey) }) }).then(r=>r.json());
-            if(res.error) return alert(res.error);
-            const tx = db.transaction('keys', 'readwrite'); tx.objectStore('keys').put({ uid: res.uid, nick: n.trim(), priv: k.privateKey, pub: k.publicKey });
-            document.getElementById('uid-input').value = res.uid; document.getElementById('new-uid-display').innerText = res.uid; document.getElementById('uid-modal').classList.remove('hidden');
+            try {
+                if(!db) return alert('【致命错误】本地安全数据库未能连接！\n请检查：\n1. 是否处于无痕模式\n2. 是否禁用了 Cookie 和本地存储。');
+                
+                const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
+                const n = prompt("请输入您的专属昵称："); if(!n || n.trim() === '') return;
+                
+                const k = await cryptoOp.gen();
+                const req = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: n.trim(), password: p, public_key: await cryptoOp.export(k.publicKey) }) });
+                
+                if(!req.ok && req.status === 502) throw new Error("网关 502 错误，服务器后端应用可能已掉线！");
+                
+                const res = await req.json();
+                if(res.error) return alert("注册被拦截：" + res.error);
+                
+                const tx = db.transaction('keys', 'readwrite'); 
+                tx.objectStore('keys').put({ uid: res.uid, nick: n.trim(), priv: k.privateKey, pub: k.publicKey });
+                
+                document.getElementById('uid-input').value = res.uid; 
+                document.getElementById('new-uid-display').innerText = res.uid; 
+                document.getElementById('uid-modal').classList.remove('hidden');
+            } catch (e) {
+                alert("【注册组件崩溃】\n详情：" + e.message + "\n\n如果您使用 http 访问，系统强制禁用了加密组件，请使用 HTTPS！");
+                console.error(e);
+            }
         };
 
         const downloadBackupAndLogin = async () => { await exportData(document.getElementById('new-uid-display').innerText); closeUidModal(); };
         const closeUidModal = () => document.getElementById('uid-modal').classList.add('hidden');
 
         const login = async () => {
-            const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
-            if(!u || !p) return alert('请输入 UID 和密码');
-            const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
-            if(res.error) return alert('验证失败，密码错误或网络异常');
-            
-            const k = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(u); req.onsuccess = () => r(req.result); req.onerror = () => r(null); });
-            if(!k) return alert("本地缺失解密私钥！请点击【导入恢复包】重新导入您的数据！");
-            
-            currentUid = u; currentNickname = res.nickname; currentToken = res.token;
-            
-            sessionStorage.setItem('chat_uid', u); 
-            sessionStorage.setItem('chat_token', res.token);
-            sessionStorage.setItem('temp_pwd', p); 
-            resetIdleTimer();
-            
-            document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
-            document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
-            
-            const msgs = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
-            unreadMap = {}; msgs.forEach(x => { if (x.type === 'other' && x.status === 0) unreadMap[x.contact] = (unreadMap[x.contact] || 0) + 1; });
-            
-            requestNotifyPermission(); initSocket(); renderUI();
+            try {
+                if(!db) return alert('【致命错误】本地安全数据库未能连接，无法调用您的私钥。请刷新重试！');
+                
+                const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
+                if(!u || !p) return alert('请输入 UID 和密码');
+                
+                const req = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) });
+                if(!req.ok && req.status === 502) throw new Error("网关 502 错误，服务器后端应用可能已掉线！");
+                
+                const res = await req.json();
+                if(res.error) return alert('验证失败，密码错误或该账号不存在');
+                
+                const k = await new Promise(r => { const req_db = db.transaction('keys').objectStore('keys').get(u); req_db.onsuccess = () => r(req_db.result); req_db.onerror = () => r(null); });
+                if(!k) return alert("【严重警告】本地缺失解密私钥！\n如果曾清理缓存，密钥将被彻底销毁。请点击【导入恢复包】！");
+                
+                currentUid = u; currentNickname = res.nickname; currentToken = res.token;
+                
+                sessionStorage.setItem('chat_uid', u); 
+                sessionStorage.setItem('chat_token', res.token);
+                sessionStorage.setItem('temp_pwd', p); 
+                resetIdleTimer();
+                
+                document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
+                document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
+                
+                const msgs = await new Promise(r => { const req_msgs = db.transaction('messages').objectStore('messages').getAll(); req_msgs.onsuccess = () => r(req_msgs.result); });
+                unreadMap = {}; msgs.forEach(x => { if (x.type === 'other' && x.status === 0) unreadMap[x.contact] = (unreadMap[x.contact] || 0) + 1; });
+                
+                requestNotifyPermission(); initSocket(); renderUI();
+            } catch (e) {
+                alert("【登录组件崩溃】\n详情：" + e.message);
+                console.error(e);
+            }
         };
 
         const logout = () => { if(confirm('确定退出当前账号？')) { sessionStorage.clear(); location.reload(); } };
@@ -468,7 +525,7 @@
                     unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderUI(); 
                     socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
                 }
-            } catch(e) {}
+            } catch(e) { console.error("Parse Error", e); }
         };
 
         const renderUI = async () => {
