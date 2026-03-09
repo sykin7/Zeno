@@ -198,13 +198,17 @@
         const safeBuf2B64 = (b) => { const x = new Uint8Array(b); let r = ''; for(let i=0; i<x.byteLength; i+=8192) r+=String.fromCharCode.apply(null, x.subarray(i, i+8192)); return btoa(r); };
         const safeB642Buf = (s) => { const x = atob(s); const l = x.length; const r = new Uint8Array(l); for(let i=0; i<l; i++) r[i]=x.charCodeAt(i); return r.buffer; };
         
+        // 坚固隔离层：防苹果/安卓自带浏览器后台误杀垃圾回收
+        const idbGet = (store, key) => new Promise(r => { try { const req = db.transaction(store).objectStore(store).get(key); req.onsuccess = () => r(req.result); req.onerror = () => r(null); } catch(e) { r(null); } });
+        const idbGetAll = (store) => new Promise(r => { try { const req = db.transaction(store).objectStore(store).getAll(); req.onsuccess = () => r(req.result); req.onerror = () => r([]); } catch(e) { r([]); } });
+        
         let idleTimer;
         const resetIdleTimer = () => {
             clearTimeout(idleTimer);
-            if(sessionStorage.getItem('chat_uid')) { idleTimer = setTimeout(() => { document.getElementById('lock-screen').classList.remove('hidden'); }, 3 * 60 * 1000); }
+            if(localStorage.getItem('chat_uid')) { idleTimer = setTimeout(() => { document.getElementById('lock-screen').classList.remove('hidden'); }, 3 * 60 * 1000); }
         };
         const unlockZeno = () => {
-            if(document.getElementById('unlock-password').value === sessionStorage.getItem('temp_pwd')) { document.getElementById('lock-screen').classList.add('hidden'); document.getElementById('unlock-password').value = ''; resetIdleTimer(); } 
+            if(document.getElementById('unlock-password').value === localStorage.getItem('temp_pwd')) { document.getElementById('lock-screen').classList.add('hidden'); document.getElementById('unlock-password').value = ''; resetIdleTimer(); } 
             else { alert("密码错误！"); }
         };
         window.addEventListener('touchstart', resetIdleTimer); window.addEventListener('click', resetIdleTimer); window.addEventListener('scroll', resetIdleTimer);
@@ -219,7 +223,6 @@
             catch (e) { alert("设备连接失败，请检查麦克风权限！"); throw e; }
         };
 
-        // 核心修复1：防错罩，杜绝手机系统拒绝通知权限时导致程序崩溃死机
         const requestNotifyPermission = () => { try { if ("Notification" in window && Notification.permission !== "denied") Notification.requestPermission(); } catch(e) {} };
         const showPushNotification = (n, t) => { try { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(`Zeno - ${n}`, { body: t, icon: '🛡️' }); } catch(e) {} };
 
@@ -254,7 +257,7 @@
         };
 
         const initUnreadMap = async () => {
-            const m = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
+            const m = await idbGetAll('messages');
             unreadMap = {}; m.forEach(x => { if (x.type === 'other' && x.status === 0) unreadMap[x.contact] = (unreadMap[x.contact] || 0) + 1; });
         };
 
@@ -275,24 +278,25 @@
             const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
             if(!u || !p) return alert('请输入 UID 和密码');
             const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
-            if(res.error) return alert('验证失败');
-            const k = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(u); req.onsuccess = () => r(req.result); });
+            if(res.error) return alert('验证失败，账号或密码错误');
+            const k = await idbGet('keys', u);
             if(!k) return alert("本地缺失解密私钥！请点击【导入恢复包】。");
+            
             currentUid = u; currentNickname = res.nickname; currentToken = res.token;
-            sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
-            sessionStorage.setItem('temp_pwd', p); resetIdleTimer();
+            localStorage.setItem('chat_uid', u); localStorage.setItem('chat_token', res.token);
+            localStorage.setItem('temp_pwd', p); localStorage.setItem('chat_nick', res.nickname);
+            resetIdleTimer();
+            
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
             document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = currentNickname; document.getElementById('settings-nickname').value = currentNickname;
             await initUnreadMap(); requestNotifyPermission(); initSocket(); renderUI();
         };
 
-        const logout = () => { if(confirm('确定退出当前账号？未清理缓存下次仍可登录。')) { sessionStorage.clear(); location.reload(); } };
+        const logout = () => { if(confirm('确定退出当前账号？未清理缓存下次仍可一键登录。')) { localStorage.clear(); location.reload(); } };
 
         const exportData = async (t = '') => {
             try {
-                const k = await new Promise(r=>{db.transaction('keys').objectStore('keys').getAll().onsuccess=e=>r(e.target.result)});
-                const m = await new Promise(r=>{db.transaction('messages').objectStore('messages').getAll().onsuccess=e=>r(e.target.result)});
-                const c = await new Promise(r=>{db.transaction('contacts').objectStore('contacts').getAll().onsuccess=e=>r(e.target.result)});
+                const k = await idbGetAll('keys'); const m = await idbGetAll('messages'); const c = await idbGetAll('contacts');
                 if (k.length === 0) return alert('没有任何数据可供备份！');
                 const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({keys:k,msgs:m,contacts:c})], {type:'application/json'}));
                 a.download = `Zeno_Backup${t?`_UID_${t}`:''}_${Date.now()}.json`; a.click();
@@ -320,19 +324,19 @@
         };
 
         const initSocket = () => {
-            // 核心修复2：移除强制websocket，让移动网络可智能降级，彻底解决连不上或断流
-            socket = io({ reconnectionAttempts: 20 });
+            // 核心修复3：强加 websocket 协议，穿透代理网关，防服务器直接阻断
+            socket = io({ transports: ['websocket'], reconnectionAttempts: 50 });
+            
             socket.on('connect', () => { document.getElementById('network-bar').classList.add('hidden'); socket.emit('register_socket', { uid: currentUid, token: currentToken }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken});});
             socket.on('disconnect', () => document.getElementById('network-bar').classList.remove('hidden'));
+            
+            // Token 失效断线重登抢救机制
+            socket.on('auth_error', () => { alert("服务器已更新或缓存失效，请重新输入密码验证。"); localStorage.removeItem('chat_token'); location.reload(); });
+            
             socket.on('online_users', d => { d.users.forEach(u => onlineUsers.add(u)); renderUI(); });
             socket.on('user_status', d => { d.status === 'online' ? onlineUsers.add(d.uid) : onlineUsers.delete(d.uid); renderUI(); if(currentTargetUid===d.uid) updateStatusUI(); });
             socket.on('receive_message', async d => processMsg(d));
-            
-            // 核心修复3：将离线消息同步改为严格串行队列，杜绝手机浏览器高并发下的数据库死锁崩溃
-            socket.on('offline_sync', async ds => {
-                for (let d of ds) { await processMsg(d); }
-            });
-            
+            socket.on('offline_sync', async ds => { for (let d of ds) { await processMsg(d); } });
             socket.on('msg_ack', d => updateTick(d.msgId, 1));
             socket.on('msg_read', d => updateTick(d.msgId, 2));
             socket.on('webrtc_signal', handleSignal);
@@ -340,7 +344,7 @@
             socket.on('friend_requests_data', async (arr) => {
                 const list = document.getElementById('request-list'); list.innerHTML = '';
                 if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无新请求</div>';
-                const keys = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
+                const keys = await idbGet('keys', currentUid);
                 for(let r of arr) {
                     try {
                         const info = JSON.parse(await cryptoOp.dec(r.payload, keys.priv));
@@ -354,7 +358,8 @@
 
         const processMsg = async (d) => {
             try {
-                const keys = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
+                const keys = await idbGet('keys', currentUid);
+                if (!keys) return;
                 const msg = JSON.parse(await cryptoOp.dec(d.payload, keys.priv));
                 
                 if(msg.t === 'sys_accept') {
@@ -394,7 +399,7 @@
                 }
                 
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
-                const c = await new Promise(r => db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => r(e.target.result));
+                const c = await idbGet('contacts', d.from);
                 showPushNotification(c ? c.nick : d.from, msg.t === 'text' ? msg.c : '[文件]');
                 
                 if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { 
@@ -402,12 +407,12 @@
                 } else { 
                     db.transaction('messages', 'readwrite').objectStore('messages').add(obj); unreadMap[d.from] = (unreadMap[d.from] || 0) + 1; renderUI(); socket.emit('msg_ack', { from: currentUid, token: currentToken, to: d.from, msgId: msg.id }); 
                 }
-            } catch(e) { console.error("消息解析拦截:", e); }
+            } catch(e) { console.error("Message Blocked"); }
         };
 
         const renderUI = async () => {
             const listC = document.getElementById('user-list'), listM = document.getElementById('msg-list'); listC.innerHTML = ''; listM.innerHTML = '';
-            const contacts = await new Promise(r => db.transaction('contacts').objectStore('contacts').getAll().onsuccess = e => r(e.target.result));
+            const contacts = await idbGetAll('contacts');
             let totalUnread = 0;
             if(contacts.length === 0) listC.innerHTML = listM.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无数据</div>';
             contacts.forEach(c => {
@@ -422,7 +427,7 @@
             const u = document.getElementById('search-uid-input').value.trim(); if(!u || u === currentUid) return;
             const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
             if(res.error) return alert(res.error);
-            const myK = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
+            const myK = await idbGet('keys', currentUid);
             socket.emit('send_friend_request', { from: currentUid, token: currentToken, to: res.uid, payload: await cryptoOp.enc(JSON.stringify({ u: currentUid, n: currentNickname, p: await cryptoOp.export(myK.pub) }), res.public_key) });
             alert(`已请求添加 ${res.nickname}`); document.getElementById('search-uid-input').value = '';
         };
@@ -460,7 +465,7 @@
         const closeChat = () => { currentTargetUid = null; document.getElementById('chat-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden'); };
 
         const recallSingleMsg = async (msgId) => {
-            if(!confirm("确定撤回这条消息吗？对方设备上的记录也会被物理销毁。")) return;
+            if(!confirm("确定要撤回这条消息吗？对方设备上的记录也会被物理销毁。")) return;
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_recall', c: msgId }), targetPublicKeyStr) });
             const tx = db.transaction('messages', 'readwrite');
             tx.objectStore('messages').index('contact').openCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => {
@@ -582,8 +587,19 @@
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
         const endCallLocal = () => { clearTimeout(callTimeout); releaseWakeLock(); if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
 
-        const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('成功'); };
-        window.onload = async () => { await initDB(); const u = sessionStorage.getItem('chat_uid'); if(u) document.getElementById('uid-input').value = u; };
+        const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; localStorage.setItem('chat_nick',n); alert('成功'); };
+        
+        // 核心修复4：闪电复活引擎。浏览器刷新或被杀后台唤醒后，免填密码0.1秒满血复原
+        window.onload = async () => { 
+            await initDB(); 
+            const u = localStorage.getItem('chat_uid'), t = localStorage.getItem('chat_token'), p = localStorage.getItem('temp_pwd'), n = localStorage.getItem('chat_nick');
+            if(u && t && p && n) {
+                currentUid = u; currentToken = t; currentNickname = n;
+                document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
+                document.getElementById('profile-uid-show').innerText = u; document.getElementById('profile-name-show').innerText = n; document.getElementById('settings-nickname').value = n;
+                resetIdleTimer(); await initUnreadMap(); requestNotifyPermission(); initSocket(); renderUI();
+            } else if(u) { document.getElementById('uid-input').value = u; }
+        };
     </script>
 </body>
 </html>
