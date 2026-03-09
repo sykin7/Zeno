@@ -29,7 +29,6 @@ def init_db():
     conn.execute('PRAGMA auto_vacuum = FULL;')
     conn.execute('CREATE TABLE IF NOT EXISTS users (uid TEXT PRIMARY KEY, nickname TEXT, password_hash TEXT, public_key TEXT)')
     conn.execute('CREATE TABLE IF NOT EXISTS offline_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)')
-    # 新增好友请求表
     conn.execute('CREATE TABLE IF NOT EXISTS friend_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, to_uid TEXT, from_uid TEXT, payload TEXT, timestamp REAL)')
     conn.commit()
     conn.close()
@@ -79,7 +78,6 @@ def login():
         return jsonify({'status': 'ok', 'uid': uid, 'nickname': user['nickname'], 'public_key': user['public_key'], 'token': token})
     return jsonify({'error': 'Auth failed'}), 401
 
-# 重构：仅搜寻用户，不直接添加
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
     data = request.json
@@ -128,7 +126,13 @@ def handle_disconnect():
 def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
-    now_ms = time.time() * 1000
+    
+    now = time.time()
+    if now - message_limits.get(sender_uid, 0) < 0.5:
+        return
+    message_limits[sender_uid] = now
+
+    now_ms = now * 1000
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
     else:
@@ -137,13 +141,11 @@ def handle_message(data):
         conn.commit()
         conn.close()
 
-# 新增：处理好友请求的发送、拉取与销毁
 @socketio.on('send_friend_request')
 def handle_send_friend_request(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
     conn = get_db()
-    # 防重发拦截
     existing = conn.execute('SELECT 1 FROM friend_requests WHERE to_uid = ? AND from_uid = ?', (target_uid, sender_uid)).fetchone()
     if not existing:
         conn.execute('INSERT INTO friend_requests (to_uid, from_uid, payload, timestamp) VALUES (?, ?, ?, ?)', (target_uid, sender_uid, payload, time.time()))
@@ -157,7 +159,6 @@ def handle_fetch_requests(data):
     uid, token = data.get('uid'), data.get('token')
     if not uid or auth_tokens.get(uid) != token: return
     conn = get_db()
-    # 七天过期自动清理策略 (7 * 24 * 3600 = 604800)
     expire_time = time.time() - 604800
     conn.execute('DELETE FROM friend_requests WHERE timestamp < ?', (expire_time,))
     conn.commit()
