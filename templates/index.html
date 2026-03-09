@@ -55,11 +55,8 @@
         #chat-input-area input { margin: 0; flex: 1; }
         #send-btn { width: auto; padding: 0 15px; margin: 0; height: 42px;}
         
-        .voice-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; font-size: 18px; margin: 0; flex-shrink: 0; touch-action: none; -webkit-user-select: none; user-select: none;}
         .clip-btn { width: 42px !important; height: 42px; border-radius: 50% !important; padding: 0 !important; margin: 0; flex-shrink: 0; background: var(--secondary); display: flex; align-items: center; justify-content: center;}
         
-        .recording { background: var(--danger) !important; animation: pulse 1s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         .audio-player { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 100px; }
         .unread-badge { background: var(--danger); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; position: absolute; right: 10px; top: 10px; font-weight: bold; }
         #network-bar { background: var(--danger); color: white; text-align: center; padding: 5px; font-size: 12px; position: fixed; width:100%; z-index:1000; top:0;}
@@ -72,33 +69,69 @@
         .circle-btn { width: 70px; height: 70px; border-radius: 50%; font-size: 28px; display: flex; align-items: center; justify-content: center; margin: 0;}
         .tick-read { color: var(--success); font-weight: bold; }
         .flex { display: flex; gap: 10px;}
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
     </style>
 </head>
 <body>
     <div id="network-bar" class="hidden">⚠ 连接已断开，正在后台尝试重连...</div>
 
+    <div id="guide-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div class="panel" style="width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto; text-align: left; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
+            <h2 style="color: var(--primary); margin-top: 0; text-align: center; font-size: 22px;">📖 Zeno 防丢与使用手册</h2>
+            
+            <div style="color: var(--text); font-size: 14px; line-height: 1.7;">
+                <div style="background: rgba(239, 68, 68, 0.1); padding: 12px; border-left: 4px solid var(--danger); border-radius: 4px; margin-bottom: 15px;">
+                    <h4 style="color: var(--danger); margin: 0 0 8px 0;">⚠️ 核心警告：阅后即焚，神仙难救</h4>
+                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器<b>绝对不存</b>您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。<b>如果你清除了浏览器缓存，数据将彻底灰飞烟灭！</b></p>
+                </div>
+
+                <h4 style="color: var(--success); margin-bottom: 8px;">💾 必看：正确的数据备份姿势</h4>
+                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
+                    <li style="margin-bottom: 6px;"><b>初始备份包：</b>刚注册时下载的备份包，里面<b>只有你的账号身份</b>，没有好友。</li>
+                    <li style="margin-bottom: 6px;"><b style="color: #fff;">全量备份包 (极度重要)：</b>当您添加了好友并聊过天后，如果准备换手机、清理手机垃圾、或者关闭无痕浏览器前，<b>必须进入底部的【⚙️ 我的】 -> 点击【💾 导出本地加密数据包】</b>。这个新下载的包才包含完整的通讯录和聊天记录！</li>
+                    <li><b>如何恢复：</b>在登录界面点击【📂 导入恢复包】，选择您最新导出的那个全量备份包，即可满血复活。</li>
+                </ul>
+
+                <h4 style="color: var(--primary); margin-bottom: 8px;">📞 实时语音通话说明</h4>
+                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
+                    <li style="margin-bottom: 6px;">双方必须都开着网页才能接通，如果对方已锁屏或退出浏览器，系统会直接拦截拨打。</li>
+                    <li>通话采用 P2P 物理直连，完全不消耗服务器流量，极度安全。</li>
+                </ul>
+            </div>
+            
+            <button class="success" style="margin-top: 25px; height: 48px; font-size: 16px;" onclick="document.getElementById('guide-modal').classList.add('hidden')">✅ 我已牢记以上规则</button>
+        </div>
+    </div>
+
     <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
             <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
-            <p style="color: var(--text-muted); font-size: 14px;">您的加密私钥已保存在本设备。<br>强烈建议立即下载备份，以免账号丢失！</p>
+            <p style="color: var(--text-muted); font-size: 14px;">您的加密私钥已保存在本设备。<br>强烈建议立即下载身份备份，以免账号丢失！</p>
             <div class="profile-uid" id="new-uid-display"></div>
-            <button class="success" onclick="downloadBackupAndLogin()" style="margin-bottom: 12px; height: 50px; font-size: 16px;">💾 一键下载密钥备份包 (推荐)</button>
+            <button class="success" onclick="downloadBackupAndLogin()" style="margin-bottom: 12px; height: 50px; font-size: 16px;">💾 一键下载初始备份包</button>
             <button class="secondary" onclick="closeUidModal()">稍后自己备份，直接登录</button>
         </div>
     </div>
 
     <div id="auth-view" class="container">
         <div class="panel">
-            <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>Zeno</h2><p>安全 · 私密 · 无痕</p></div>
+            <div class="brand-header"><span style="font-size:40px;">🛡️</span><h2>Zeno</h2><p style="color: var(--text-muted); font-size: 13px;">安全 · 私密 · 无痕</p></div>
+            
             <input type="text" id="uid-input" placeholder="8位数字 UID" maxlength="8">
             <input type="password" id="password" placeholder="安全密码">
-            <button onclick="login()">登 录</button>
+            <button onclick="login()" style="height: 48px; font-size: 16px; margin-top: 15px;">登 录</button>
             <button class="secondary" onclick="register()">创建新账号</button>
-            <div class="flex" style="margin-top:20px;">
-                <button class="secondary" style="font-size:13px;" onclick="exportData()">💾 导出本地数据</button>
-                <button class="secondary" style="font-size:13px;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
+            
+            <div class="flex" style="margin-top:20px; border-top: 1px dashed var(--border); padding-top: 20px;">
+                <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="exportData()">💾 导出本地数据</button>
+                <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
                 <input type="file" id="import-file" class="hidden" onchange="importData(event)">
             </div>
+            
+            <button style="margin-top: 15px; background: transparent; border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 新手必读：防丢说明书</button>
         </div>
     </div>
 
@@ -120,7 +153,7 @@
                     <input type="text" id="search-uid-input" placeholder="输入精准 8 位 UID 搜索" maxlength="8" style="margin:0;">
                     <button class="primary" style="width:90px; margin:0;" onclick="searchAndRequest()">搜索</button>
                 </div>
-                <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求 (7天自动销毁)</h4>
+                <h4 style="color:var(--text-muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">收到的请求</h4>
                 <div id="request-list"></div>
             </div>
 
@@ -131,13 +164,17 @@
                     <div class="profile-uid" id="profile-uid-show"></div>
                     <div style="font-size:20px; font-weight:bold; margin-bottom: 5px;" id="profile-name-show"></div>
                 </div>
-                <h4 style="color:var(--text-muted);">资料修改</h4>
-                <input type="text" id="settings-nickname" placeholder="修改昵称">
-                <button onclick="saveProfile()" style="margin-bottom: 30px;">更新资料</button>
                 
-                <h4 style="color:var(--text-muted);">数据安全管理</h4>
-                <button class="secondary" onclick="exportData(currentUid)">💾 导出本地加密数据包</button>
-                <button class="danger" onclick="logout()" style="margin-top: 15px;">🚪 退出当前账号</button>
+                <h4 style="color:var(--text-muted);">资料与帮助</h4>
+                <div class="flex">
+                    <input type="text" id="settings-nickname" placeholder="修改昵称" style="margin:0;">
+                    <button onclick="saveProfile()" style="width: 100px; margin:0;">更新</button>
+                </div>
+                <button style="margin-top: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 查看安全与防丢说明书</button>
+                
+                <h4 style="color:var(--text-muted); margin-top: 30px;">数据安全管理</h4>
+                <button class="success" onclick="exportData(currentUid)">💾 离线前必备：导出完整数据包</button>
+                <button class="danger" onclick="logout()" style="margin-top: 15px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">🚪 退出当前账号</button>
             </div>
         </div>
 
@@ -156,7 +193,6 @@
         </div>
         <div id="chat-box" onscroll="handleChatScroll()"></div>
         <div id="chat-input-area">
-            <button class="secondary voice-btn" id="voice-btn" onmousedown="startRecording(event)" onmouseup="stopRecording(event)" onmouseleave="stopRecording(event)" ontouchstart="startRecording(event)" ontouchend="stopRecording(event)" ontouchcancel="stopRecording(event)" oncontextmenu="return false;">🎤</button>
             <button class="secondary clip-btn" onclick="document.getElementById('file-upload').click()">📎</button>
             <input type="file" id="file-upload" class="hidden" accept="*/*" onchange="handleFileUpload(event)">
             <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMessage()">
@@ -175,8 +211,7 @@
 
     <script>
         let db, currentUid, currentNickname, currentToken, currentTargetUid, currentTargetName, targetPublicKeyStr, socket, peerConnection, localStream;
-        let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false, mediaRecorder, audioChunks = [];
-        let isRecording = false; 
+        let onlineUsers = new Set(), unreadMap = {}, lastLoadedTs = 0, isEnd = false;
         let activeCallTarget = null;
         let iceCandidateQueue = []; 
         const STUN = { iceServers: [{ urls: 'stun:stun.qq.com:3478' }, { urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.aliyun.com:3478' }] };
@@ -278,7 +313,7 @@
             const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
             if(res.error) return alert('验证失败');
             const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(u); req.onsuccess = () => r(req.result); });
-            if(!keys) return alert("本地缺失解密私钥，如果您更换了设备，请先导入备份文件。");
+            if(!keys) return alert("本地缺失解密私钥！如果您清理了缓存或更换了设备，请先点击【导入恢复包】导入之前备份的文件。");
             currentUid = u; currentNickname = res.nickname; currentToken = res.token;
             sessionStorage.setItem('chat_uid', u); sessionStorage.setItem('chat_token', res.token);
             document.getElementById('auth-view').classList.add('hidden'); document.getElementById('app-layout').classList.remove('hidden');
@@ -287,25 +322,25 @@
             requestNotifyPermission(); initSocket(); renderUI();
         };
 
-        const logout = () => { if(confirm('确定要退出当前账号吗？')) { sessionStorage.clear(); location.reload(); } };
+        const logout = () => { if(confirm('确定要退出当前账号吗？\n只要您未清理浏览器缓存，下次仍可直接登录。')) { sessionStorage.clear(); location.reload(); } };
 
         const exportData = async (targetUid = '') => {
             try {
                 const keys = await new Promise(r=>{const rq=db.transaction('keys').objectStore('keys').getAll();rq.onsuccess=()=>r(rq.result)});
                 const msgs = await new Promise(r=>{const rq=db.transaction('messages').objectStore('messages').getAll();rq.onsuccess=()=>r(rq.result)});
                 const contacts = await new Promise(r=>{const rq=db.transaction('contacts').objectStore('contacts').getAll();rq.onsuccess=()=>r(rq.result)});
-                if (keys.length === 0) return alert('没有任何数据！');
+                if (keys.length === 0) return alert('没有任何数据可供备份！');
                 const b = new Blob([JSON.stringify({keys,msgs,contacts})], {type:'application/json'});
                 const a = document.createElement('a'); a.href = URL.createObjectURL(b);
                 const idStr = targetUid ? `_UID_${targetUid}` : '';
                 a.download = `Zeno_Backup${idStr}_${Date.now()}.json`; a.click();
-            } catch (error) { alert('导出失败'); }
+            } catch (error) { alert('导出失败，请检查浏览器是否允许下载文件'); }
         };
 
-        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('恢复成功，请登录！');location.reload();}; }catch(err){alert('格式错误！');} }; r.readAsText(f); };
+        const importData = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ try{const d=JSON.parse(ev.target.result); const tx=db.transaction(['keys','messages','contacts'],'readwrite'); if(d.keys)d.keys.forEach(k=>tx.objectStore('keys').put(k)); if(d.msgs)d.msgs.forEach(m=>tx.objectStore('messages').put(m)); if(d.contacts)d.contacts.forEach(c=>tx.objectStore('contacts').put(c)); tx.oncomplete=()=>{alert('数据恢复成功！请重新登录账号。');location.reload();}; }catch(err){alert('备份文件格式错误或已损坏！');} }; r.readAsText(f); };
 
         const deleteContact = (uid) => {
-            if(!confirm("确定移除该联系人？其相关聊天记录将保留在本地。")) return;
+            if(!confirm("确定移除该联系人？其相关聊天记录仍将保留在本地。")) return;
             const tx = db.transaction('contacts', 'readwrite'); 
             tx.objectStore('contacts').delete(uid);
             tx.oncomplete = () => renderUI();
@@ -334,7 +369,7 @@
             socket.on('new_friend_request', () => { document.getElementById('badge-reqs').innerText = '新'; document.getElementById('badge-reqs').classList.remove('hidden'); });
             socket.on('friend_requests_data', async (arr) => {
                 const list = document.getElementById('request-list'); list.innerHTML = '';
-                if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无好友请求</div>';
+                if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无新的好友请求</div>';
                 const keys = await new Promise(r => { const req = db.transaction('keys').objectStore('keys').get(currentUid); req.onsuccess = () => r(req.result); });
                 for(let r of arr) {
                     try {
@@ -364,7 +399,7 @@
                 }
                 const obj = { contact: d.from, type: 'other', content: msg.c, mType: msg.t, ts: d.timestamp, msgId: msg.id, status: 0 };
                 const contact = await new Promise(r => { const req = db.transaction('contacts').objectStore('contacts').get(d.from); req.onsuccess = () => r(req.result); });
-                showPushNotification(contact ? contact.nick : d.from, msg.t === 'text' ? msg.c : '[媒体消息]');
+                showPushNotification(contact ? contact.nick : d.from, msg.t === 'text' ? msg.c : '[收到一条媒体消息]');
 
                 if(currentTargetUid === d.from && !document.getElementById('chat-view').classList.contains('hidden')) { 
                     obj.status = 2;
@@ -404,7 +439,7 @@
             const payload = { u: currentUid, n: currentNickname, p: await cryptoOp.export(myKeys.pub) };
             const enc = await cryptoOp.enc(JSON.stringify(payload), res.public_key);
             socket.emit('send_friend_request', { from: currentUid, token: currentToken, to: res.uid, payload: enc });
-            alert(`已发送加密请求给 ${res.nickname}`); document.getElementById('search-uid-input').value = '';
+            alert(`已发送加密请求给 ${res.nickname}！请等待对方同意。`); document.getElementById('search-uid-input').value = '';
         };
 
         const rejectReq = (reqId) => { socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: reqId }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); };
@@ -415,7 +450,7 @@
             const payload = { id: Math.random().toString(36).substr(2, 9), t: 'sys_accept', c: 'ok' };
             const enc = await cryptoOp.enc(JSON.stringify(payload), fromPub);
             socket.emit('send_message', { from: currentUid, token: currentToken, to: fromUid, payload: enc });
-            alert('已添加对方为好友'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); renderUI();
+            alert('已成功添加对方为好友！'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); renderUI();
         };
 
         const loadMore = async (uid) => {
@@ -471,8 +506,8 @@
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
             let html = '';
             if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
-            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
-            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🎵 语音 (点击播放)</div>`;
+            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.3);">`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🔊 点击播放语音</div>`;
             else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
@@ -482,8 +517,8 @@
             const box = document.getElementById('chat-box'); const row = document.createElement('div'); row.className = `msg-row ${m.type}`;
             let html = '';
             if(m.mType === 'text') html = m.content.replace(/[&<>'"]/g, t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]));
-            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px;">`;
-            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🎵 语音 (点击播放)</div>`;
+            else if(m.mType === 'image') html = `<img src="${m.content}" style="max-width:100%; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.3);">`;
+            else if(m.mType === 'audio') html = `<div class="audio-player" onclick="playAudio('${m.content}')">🔊 点击播放语音</div>`;
             else html = `<a href="${m.content}" download style="color:#fff; text-decoration:underline;">📁 下载附件</a>`;
             let tick = m.type === 'me' ? `<span id="tick-${m.msgId}" style="margin-left:5px;" class="${m.status===2?'tick-read':''}">${m.status === 2 ? '✓✓' : (m.status === 1 ? '✓✓' : '✓')}</span>` : '';
             row.innerHTML = `<div class="msg-bubble">${html}</div><div class="msg-time">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${tick}</div>`;
@@ -522,38 +557,10 @@
             document.getElementById('file-upload').value = ''; 
         };
         
-        const startRecording = async (e) => { 
-            if(e && e.type === 'touchstart') e.preventDefault();
-            if(isRecording) return; 
-            isRecording = true;
-            document.getElementById('voice-btn').classList.add('recording');
-            try { 
-                const s = await getMicrophoneAccess(); 
-                if (!isRecording) { s.getTracks().forEach(t => t.stop()); return; }
-                mediaRecorder = new MediaRecorder(s); audioChunks = []; 
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data); 
-                mediaRecorder.onstop = () => { const b = new Blob(audioChunks, { type: 'audio/webm' }); const r = new FileReader(); r.readAsDataURL(b); r.onloadend = () => sendMessage('audio', r.result); }; 
-                mediaRecorder.start(); 
-            } catch(err) { 
-                isRecording = false;
-                document.getElementById('voice-btn').classList.remove('recording');
-            } 
-        };
-        const stopRecording = (e) => { 
-            if(e && (e.type === 'touchend' || e.type === 'touchcancel')) e.preventDefault();
-            if(!isRecording) return; 
-            isRecording = false; 
-            document.getElementById('voice-btn').classList.remove('recording'); 
-            if(mediaRecorder && mediaRecorder.state !== 'inactive') { 
-                mediaRecorder.stop(); 
-                if(mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach(t => t.stop());
-            } 
-        };
-        
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => { const b = document.getElementById('chat-box'); b.scrollTop = b.scrollHeight; };
-        const clearChat = () => { if(confirm("清空该对话记录？不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
+        const clearChat = () => { if(confirm("清空该对话的本地记录？此操作不可逆！")) { const tx = db.transaction('messages', 'readwrite'); tx.objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ tx.objectStore('messages').delete(c.primaryKey); c.continue(); } else { document.getElementById('chat-box').innerHTML = ''; } }; } };
 
         const startCall = async () => {
             if(!onlineUsers.has(currentTargetUid)) return alert("对方当前不在线或已锁屏，无法接通！");
@@ -577,7 +584,7 @@
                 const offer = await peerConnection.createOffer(); 
                 await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
-            } catch(e) { console.log("拨打被安全阻断"); }
+            } catch(e) {}
         };
         
         const handleSignal = async (d) => {
@@ -621,7 +628,7 @@
                 } else if(d.type === 'end') { 
                     endCallLocal(); 
                 }
-            } catch(e) { console.log('信令处理异常'); }
+            } catch(e) {}
         };
         
         const acceptCall = async () => {
@@ -641,7 +648,7 @@
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
         const endCallLocal = () => { if(localStream) localStream.getTracks().forEach(t=>t.stop()); if(peerConnection) peerConnection.close(); document.getElementById('webrtc-view').classList.add('hidden'); activeCallTarget = null; document.getElementById('remote-audio').srcObject = null; iceCandidateQueue = []; };
 
-        const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('保存成功'); };
+        const saveProfile = async () => { const n = document.getElementById('settings-nickname').value.trim(); if(!n) return; await fetch('/api/profile/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:currentUid, token:currentToken, nickname:n})}); currentNickname=n; document.getElementById('profile-name-show').innerText=n; sessionStorage.setItem('chat_nick',n); alert('资料更新成功'); };
 
         window.onload = async () => { await initDB(); const u = sessionStorage.getItem('chat_uid'); if(u) { document.getElementById('uid-input').value = u; } };
     </script>
