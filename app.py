@@ -14,7 +14,6 @@ socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=10485760
 DB_PATH = os.path.join('data', 'users.db')
 connected_users = {}
 auth_tokens = {}
-message_limits = {}
 auth_limits = {}
 ip_reg_counts = {}
 
@@ -129,6 +128,7 @@ def handle_register(data):
         emit('user_status', {'uid': uid, 'status': 'online'}, broadcast=True)
         
         conn = get_db()
+        # 核心优化：全站离线消息 7 天强制过期粉碎
         expire_time_ms = (time.time() - 604800) * 1000
         conn.execute('DELETE FROM offline_msgs WHERE timestamp < ?', (expire_time_ms,))
         
@@ -153,10 +153,9 @@ def handle_disconnect():
 def handle_message(data):
     sender_uid, token, target_uid, payload = data.get('from'), data.get('token'), data.get('to'), data.get('payload')
     if not sender_uid or auth_tokens.get(sender_uid) != token: return
-    now = time.time()
-    if now - message_limits.get(sender_uid, 0) < 0.5: return
-    message_limits[sender_uid] = now
-    now_ms = now * 1000
+    
+    # 已彻底移除消息频率限流器，防止误拦截任何正常消息
+    now_ms = time.time() * 1000
     if target_uid in connected_users:
         emit('receive_message', {'from': sender_uid, 'payload': payload, 'timestamp': now_ms}, room=connected_users[target_uid])
     else:
