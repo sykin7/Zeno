@@ -83,6 +83,29 @@
         <div>🔐 正在高强度加密并发送中...</div>
         <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
     </div>
+    <div id="guide-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div class="panel" style="width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto; text-align: left; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
+            <h2 style="color: var(--primary); margin-top: 0; text-align: center; font-size: 22px;">📖 Zeno 防丢与使用手册</h2>
+            <div style="color: var(--text); font-size: 14px; line-height: 1.7;">
+                <div style="background: rgba(239, 68, 68, 0.1); padding: 12px; border-left: 4px solid var(--danger); border-radius: 4px; margin-bottom: 15px;">
+                    <h4 style="color: var(--danger); margin: 0 0 8px 0;">⚠️ 核心警告：阅后即焚</h4>
+                    <p style="margin: 0; font-size: 13px;">本系统采用军工级端到端加密。服务器不存您的聊天记录、联系人和私钥！一切数据仅存在您当前的手机浏览器缓存中。如果您清除了浏览器缓存，数据将彻底销毁。</p>
+                </div>
+                <h4 style="color: var(--success); margin-bottom: 8px;">💾 正确的数据备份姿势</h4>
+                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
+                    <li style="margin-bottom: 6px;"><b>初始备份包：</b>刚注册时下载的备份包，里面只有身份数据。</li>
+                    <li style="margin-bottom: 6px;"><b style="color: #fff;">全量备份包：</b>准备换手机、清理手机垃圾、或关闭无痕浏览器前，必须进入底部的【⚙️ 我的】 -> 点击【💾 导出本地加密数据包】。</li>
+                    <li><b>恢复：</b>在登录界面点击【📂 导入恢复包】，选择全量备份包恢复。</li>
+                </ul>
+                <h4 style="color: var(--primary); margin-bottom: 8px;">📞 实时语音通话说明</h4>
+                <ul style="margin-top: 0; padding-left: 20px; font-size: 13px; color: var(--text-muted);">
+                    <li style="margin-bottom: 6px;">双方必须在线开着网页才能接通。</li>
+                    <li>通话采用极致加密与环境降噪优化，彻底保护隐私。</li>
+                </ul>
+            </div>
+            <button class="success" style="margin-top: 25px; height: 48px; font-size: 16px;" onclick="document.getElementById('guide-modal').classList.add('hidden')">✅ 我已牢记</button>
+        </div>
+    </div>
     <div id="uid-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="panel" style="width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(59,130,246,0.2);">
             <h2 style="color: var(--success); margin-top: 0;">🎉 账号创建成功</h2>
@@ -104,6 +127,7 @@
                 <button class="secondary" style="font-size:13px; background: #0f172a;" onclick="document.getElementById('import-file').click()">📂 导入恢复包</button>
                 <input type="file" id="import-file" class="hidden" onchange="importData(event)">
             </div>
+            <button style="margin-top: 15px; background: transparent; border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 新手必读：防丢说明书</button>
         </div>
     </div>
     <div id="app-layout" class="hidden">
@@ -121,6 +145,7 @@
                 <div class="profile-card"><div style="color:var(--text-muted); font-size:14px;">我的专属 UID</div><div class="profile-uid" id="profile-uid-show"></div><div style="font-size:20px; font-weight:bold; margin-bottom: 5px;" id="profile-name-show"></div></div>
                 <h4 style="color:var(--text-muted);">资料与帮助</h4>
                 <div class="flex"><input type="text" id="settings-nickname" placeholder="修改昵称" style="margin:0;"><button onclick="saveProfile()" style="width: 100px; margin:0;">更新</button></div>
+                <button style="margin-top: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); color: var(--primary);" onclick="document.getElementById('guide-modal').classList.remove('hidden')">📖 查看安全与防丢说明书</button>
                 <h4 style="color:var(--text-muted); margin-top: 30px;">数据安全管理</h4>
                 <button class="success" onclick="exportData(currentUid)">💾 离线前必备：导出完整数据包</button>
                 <button class="danger" onclick="logout()" style="margin-top: 15px; background: transparent; border: 1px solid var(--danger); color: var(--danger);">🚪 退出当前账号</button>
@@ -208,14 +233,15 @@
         };
 
         const initUnreadMap = async () => {
+            if (!db) return;
             const m = await new Promise(r => { const req = db.transaction('messages').objectStore('messages').getAll(); req.onsuccess = () => r(req.result); });
             unreadMap = {}; m.forEach(x => { if (x.type === 'other' && x.status === 0) unreadMap[x.contact] = (unreadMap[x.contact] || 0) + 1; });
         };
 
-        // 修复1：注册防假死雷达
+        // 💥 修复1：注册防崩溃雷达
         const register = async () => {
             try {
-                if(!db) return alert('【错误】您的浏览器（或无痕模式）禁用了本地数据库，无法生成和保存私钥！请退出无痕模式或在设置中允许。');
+                if (!db) return alert("【严重错误】您的浏览器（或无痕模式）禁用了本地数据库（IndexedDB）。无法生成和保存私钥，请退出无痕模式！");
                 const p = document.getElementById('password').value; if(!p) return alert('请输入安全密码');
                 const n = prompt("请输入您的专属昵称："); if(!n || n.trim() === '') return;
                 const k = await cryptoOp.gen();
@@ -231,10 +257,10 @@
         const downloadBackupAndLogin = async () => { await exportData(document.getElementById('new-uid-display').innerText); closeUidModal(); };
         const closeUidModal = () => document.getElementById('uid-modal').classList.add('hidden');
 
-        // 修复2：登录防假死雷达
+        // 💥 修复2：登录防崩溃雷达
         const login = async () => {
             try {
-                if(!db) return alert('【错误】您的浏览器（或无痕模式）禁用了本地数据库，无法读取您的私钥！请退出无痕模式后重试。');
+                if (!db) return alert("【严重错误】您的浏览器（或无痕模式）禁用了本地数据库（IndexedDB），无法读取私钥。请退出无痕模式重试！");
                 const u = document.getElementById('uid-input').value.trim(), p = document.getElementById('password').value;
                 if(!u || !p) return alert('请输入 UID 和密码');
                 const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u, password: p }) }).then(r=>r.json());
@@ -299,6 +325,7 @@
             socket.on('friend_requests_data', async (arr) => {
                 const list = document.getElementById('request-list'); list.innerHTML = '';
                 if(arr.length === 0) return list.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:13px; margin-top:20px;">暂无新请求</div>';
+                if(!db) return;
                 const keys = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
                 for(let r of arr) {
                     try {
@@ -312,6 +339,7 @@
         };
 
         const processMsg = async (d) => {
+            if(!db) return;
             try {
                 const keys = await new Promise(r => db.transaction('keys').objectStore('keys').get(currentUid).onsuccess = e => r(e.target.result));
                 const msg = JSON.parse(await cryptoOp.dec(d.payload, keys.priv));
@@ -332,6 +360,7 @@
         };
 
         const renderUI = async () => {
+            if(!db) return;
             const listC = document.getElementById('user-list'), listM = document.getElementById('msg-list'); listC.innerHTML = ''; listM.innerHTML = '';
             const contacts = await new Promise(r => db.transaction('contacts').objectStore('contacts').getAll().onsuccess = e => r(e.target.result));
             let totalUnread = 0;
@@ -345,6 +374,7 @@
         };
 
         const searchAndRequest = async () => {
+            if(!db) return alert("数据库错误");
             const u = document.getElementById('search-uid-input').value.trim(); if(!u || u === currentUid) return;
             const res = await fetch('/api/search_user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: u }) }).then(r=>r.json());
             if(res.error) return alert(res.error);
@@ -355,13 +385,14 @@
 
         const rejectReq = (id) => { socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: id }); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); };
         const acceptReq = async (id, uid, nick, pub) => {
-            db.transaction('contacts', 'readwrite').objectStore('contacts').put({ uid, nick, pub });
+            if(db) db.transaction('contacts', 'readwrite').objectStore('contacts').put({ uid, nick, pub });
             socket.emit('resolve_friend_request', { uid: currentUid, token: currentToken, req_id: id });
             socket.emit('send_message', { from: currentUid, token: currentToken, to: uid, payload: await cryptoOp.enc(JSON.stringify({ id: Math.random().toString(36).substr(2, 9), t: 'sys_accept', c: 'ok' }), pub) });
             alert('添加成功'); socket.emit('fetch_friend_requests', {uid: currentUid, token: currentToken}); renderUI();
         };
 
         const loadMore = async (uid) => {
+            if(!db) return [];
             const tx = db.transaction('messages').objectStore('messages'); const idx = tx.index('contact'); let count = 0, msgs = [];
             return new Promise(res => {
                 idx.openCursor(IDBKeyRange.only(uid), 'prev').onsuccess = e => {
@@ -377,8 +408,10 @@
         const openChat = async (uid, name, pub) => {
             currentTargetUid = uid; currentTargetName = name; targetPublicKeyStr = pub; unreadMap[uid] = 0; lastLoadedTs = 0; isEnd = false;
             document.getElementById('app-layout').classList.add('hidden'); document.getElementById('chat-view').classList.remove('hidden'); document.getElementById('chat-target-name').innerText = name; updateStatusUI(); document.getElementById('chat-box').innerHTML = '';
-            const tx = db.transaction('messages', 'readwrite'); const store = tx.objectStore('messages');
-            store.index('contact').openCursor(IDBKeyRange.only(uid)).onsuccess = e => { const c = e.target.result; if(c) { if(c.value.type === 'other' && c.value.status === 0) { const d = c.value; d.status = 2; store.put(d); } c.continue(); } };
+            if(db) {
+                const tx = db.transaction('messages', 'readwrite'); const store = tx.objectStore('messages');
+                store.index('contact').openCursor(IDBKeyRange.only(uid)).onsuccess = e => { const c = e.target.result; if(c) { if(c.value.type === 'other' && c.value.status === 0) { const d = c.value; d.status = 2; store.put(d); } c.continue(); } };
+            }
             const msgs = await loadMore(uid); msgs.forEach(m => appendDOM(m)); boxScroll();
             msgs.forEach(m => { if(m.type === 'other') socket.emit('msg_read', { from: currentUid, token: currentToken, to: uid, msgId: m.msgId }); }); renderUI();
         };
@@ -397,7 +430,7 @@
         const sendMessage = async (t = 'text', c = null) => {
             const i = document.getElementById('msg-input'); const v = c || i.value.trim(); if(!v) return; if(!c) i.value = '';
             const id = Math.random().toString(36).substr(2, 9); const ts = Date.now(); const obj = { contact: currentTargetUid, type: 'me', content: v, mType: t, ts, msgId: id, status: 0 };
-            db.transaction('messages', 'readwrite').objectStore('messages').add(obj); appendDOM(obj); boxScroll();
+            if(db) db.transaction('messages', 'readwrite').objectStore('messages').add(obj); appendDOM(obj); boxScroll();
             socket.emit('send_message', { from: currentUid, token: currentToken, to: currentTargetUid, payload: await cryptoOp.enc(JSON.stringify({ id, t, c: v }), targetPublicKeyStr) });
         };
         
@@ -412,13 +445,15 @@
         const updateStatusUI = () => document.getElementById('chat-target-status').innerText = onlineUsers.has(currentTargetUid)?"在线":"离线";
         const updateTick = (id, s) => { const e = document.getElementById(`tick-${id}`); if(e) { e.innerText = '✓✓'; if(s===2) e.className = 'tick-read'; } };
         const boxScroll = () => document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
-        const clearChat = () => { if(confirm("清空？")) { db.transaction('messages', 'readwrite').objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } else document.getElementById('chat-box').innerHTML = ''; }; } };
+        const clearChat = () => { if(confirm("清空？")) { if(db) db.transaction('messages', 'readwrite').objectStore('messages').index('contact').openKeyCursor(IDBKeyRange.only(currentTargetUid)).onsuccess = e => { const c = e.target.result; if(c){ db.transaction('messages','readwrite').objectStore('messages').delete(c.primaryKey); c.continue(); } else document.getElementById('chat-box').innerHTML = ''; }; } };
 
         const startCall = async () => {
             if(!onlineUsers.has(currentTargetUid)) return alert("对方离线");
             try {
-                localStream = await getMicrophoneAccess(); await acquireWakeLock();
+                // [防报错修补 1] 拨打时先锁定目标
                 activeCallTarget = currentTargetUid;
+                
+                localStream = await getMicrophoneAccess(); await acquireWakeLock();
                 document.getElementById('webrtc-view').classList.remove('hidden'); document.getElementById('call-status').innerText = "呼叫中..."; document.getElementById('call-target-display-name').innerText = currentTargetName;
                 peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = []; 
                 localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
@@ -427,28 +462,33 @@
                 const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
                 socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid, type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
                 clearTimeout(callTimeout); callTimeout = setTimeout(() => { alert("无响应"); endCallLocal(); }, 10000);
-            } catch(e) { endCallLocal(); }
+            } catch(e) { 
+                alert("呼叫异常: " + e.message); 
+                endCallLocal(); 
+            }
         };
         
         const handleSignal = async (d) => {
             try {
                 if(d.type === 'offer') {
-                    // [修复 3] 瞬间锁死目标，保证崩溃时也能准确挂断
+                    // [防报错修补 2] 瞬间锁定目标身份，崩溃也能挂断
                     activeCallTarget = d.from;
                     
                     if(!document.getElementById('webrtc-view').classList.contains('hidden')) return socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'busy' });
                     socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ringing' });
-                    try { db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => { const cn = e.target.result ? e.target.result.nick : d.from; document.getElementById('call-target-display-name').innerText = cn; showPushNotification("来电", cn); }; } catch(e) {}
+                    
+                    // 防无痕模式下查库崩溃
+                    try { if(db) db.transaction('contacts').objectStore('contacts').get(d.from).onsuccess = e => { const cn = e.target.result ? e.target.result.nick : d.from; document.getElementById('call-target-display-name').innerText = cn; showPushNotification("来电", cn); }; } catch(e) {}
                     
                     peerConnection = new RTCPeerConnection(STUN); iceCandidateQueue = [];
                     peerConnection.onicecandidate = e => { if(e.candidate) socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: d.from, type: 'ice', ice: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } }); };
                     peerConnection.ontrack = e => document.getElementById('remote-audio').srcObject = e.streams[0];
                     
-                    // [修复 4] 必须等底层通道 100% 建好
+                    // [防报错修补 3] 必须强制等待底层通道全部建好，否则点接听必闪退！
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(d.sdp)); 
                     while(iceCandidateQueue.length > 0) peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift())).catch(e=>{});
                     
-                    // [修复 5] 通道建好了，最后才展示接听界面，杜绝手快抢跑引发的闪退
+                    // [防报错修补 4] 通道就绪后，才允许把界面显示出来给人点
                     document.getElementById('webrtc-view').classList.remove('hidden'); 
                     document.getElementById('call-tools').classList.add('hidden'); 
                     document.getElementById('incoming-tools').classList.remove('hidden'); 
@@ -463,7 +503,7 @@
                 } else if(d.type === 'busy') { clearTimeout(callTimeout); alert("正忙"); endCallLocal();
                 } else if(d.type === 'reject') { clearTimeout(callTimeout); alert("对方已挂断"); endCallLocal();
                 } else if(d.type === 'end') { clearTimeout(callTimeout); endCallLocal(); }
-            } catch(e) {}
+            } catch(e) { console.error(e); }
         };
 
         const acceptCall = async () => {
@@ -471,7 +511,11 @@
                 localStream = await getMicrophoneAccess(); await acquireWakeLock(); localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
                 const ans = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(ans); socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'answer', sdp: { type: ans.type, sdp: ans.sdp } });
                 document.getElementById('incoming-tools').classList.add('hidden'); document.getElementById('call-tools').classList.remove('hidden'); document.getElementById('call-status').innerText = "通话中";
-            } catch(e) { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' }); endCallLocal(); }
+            } catch(e) { 
+                alert("接听失败: " + e.message); 
+                socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: activeCallTarget, type: 'reject' }); 
+                endCallLocal(); 
+            }
         };
 
         const endCall = () => { socket.emit('webrtc_signal', { from: currentUid, token: currentToken, to: currentTargetUid || activeCallTarget, type: document.getElementById('incoming-tools').classList.contains('hidden') ? 'end' : 'reject' }); endCallLocal(); };
